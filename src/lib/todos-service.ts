@@ -1,4 +1,4 @@
-import { DEFAULT_USER_ID } from "@/lib/constants";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/db";
 import type { Todo, TodoPriority, TodoRow, TodoStatus } from "@/lib/types";
 
@@ -16,8 +16,19 @@ export function rowToTodo(row: TodoRow): Todo {
   };
 }
 
+function assertUserId(userId: string | undefined): string {
+  if (!userId) {
+    throw new Error("userId is required");
+  }
+  return userId;
+}
+
+function db(client?: SupabaseClient): SupabaseClient {
+  return client ?? getSupabaseAdmin();
+}
+
 export type ListTodosParams = {
-  userId?: string;
+  userId: string;
   q?: string;
   status?: TodoStatus;
   priority?: TodoPriority;
@@ -26,9 +37,12 @@ export type ListTodosParams = {
   archivedOnly?: boolean;
 };
 
-export async function listTodos(params: ListTodosParams = {}): Promise<Todo[]> {
-  const userId = params.userId ?? DEFAULT_USER_ID;
-  const supabase = getSupabaseAdmin();
+export async function listTodos(
+  params: ListTodosParams,
+  client?: SupabaseClient,
+): Promise<Todo[]> {
+  const userId = assertUserId(params.userId);
+  const supabase = db(client);
   let query = supabase.from("todos").select("*").eq("user_id", userId);
 
   if (params.archivedOnly) {
@@ -54,16 +68,19 @@ export async function listTodos(params: ListTodosParams = {}): Promise<Todo[]> {
 }
 
 export type CreateTodoInput = {
-  userId?: string;
+  userId: string;
   name: string;
   status?: TodoStatus;
   priority?: TodoPriority;
   category?: string | null;
 };
 
-export async function createTodo(input: CreateTodoInput): Promise<Todo> {
-  const userId = input.userId ?? DEFAULT_USER_ID;
-  const supabase = getSupabaseAdmin();
+export async function createTodo(
+  input: CreateTodoInput,
+  client?: SupabaseClient,
+): Promise<Todo> {
+  const userId = assertUserId(input.userId);
+  const supabase = db(client);
   const payload = {
     user_id: userId,
     name: input.name.trim(),
@@ -107,14 +124,16 @@ function completedAtForStatus(
 export async function updateTodo(
   id: string,
   patch: UpdateTodoInput,
-  userId: string = DEFAULT_USER_ID,
+  userId: string,
+  client?: SupabaseClient,
 ): Promise<Todo | null> {
-  const supabase = getSupabaseAdmin();
+  const uid = assertUserId(userId);
+  const supabase = db(client);
   const { data: existing, error: fetchErr } = await supabase
     .from("todos")
     .select("*")
     .eq("id", id)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .maybeSingle();
   if (fetchErr) throw new Error(fetchErr.message);
   if (!existing) return null;
@@ -148,7 +167,7 @@ export async function updateTodo(
     .from("todos")
     .update(updates)
     .eq("id", id)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -158,14 +177,16 @@ export async function updateTodo(
 
 export async function archiveTodo(
   id: string,
-  userId: string = DEFAULT_USER_ID,
+  userId: string,
+  client?: SupabaseClient,
 ): Promise<Todo | null> {
-  const supabase = getSupabaseAdmin();
+  const uid = assertUserId(userId);
+  const supabase = db(client);
   const { data, error } = await supabase
     .from("todos")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -176,14 +197,16 @@ export async function archiveTodo(
 /** Checkbox rule: completed -> open; otherwise -> completed (from open or in_progress). */
 export async function toggleTodoCompletedUi(
   id: string,
-  userId: string = DEFAULT_USER_ID,
+  userId: string,
+  client?: SupabaseClient,
 ): Promise<Todo | null> {
-  const supabase = getSupabaseAdmin();
+  const uid = assertUserId(userId);
+  const supabase = db(client);
   const { data: existing, error: fetchErr } = await supabase
     .from("todos")
     .select("*")
     .eq("id", id)
-    .eq("user_id", userId)
+    .eq("user_id", uid)
     .is("archived_at", null)
     .maybeSingle();
   if (fetchErr) throw new Error(fetchErr.message);
@@ -191,12 +214,13 @@ export async function toggleTodoCompletedUi(
 
   const row = existing as TodoRow;
   const next: TodoStatus = row.status === "completed" ? "open" : "completed";
-  return updateTodo(id, { status: next }, userId);
+  return updateTodo(id, { status: next }, uid, client);
 }
 
 export async function restoreTodo(
   id: string,
-  userId: string = DEFAULT_USER_ID,
+  userId: string,
+  client?: SupabaseClient,
 ): Promise<Todo | null> {
-  return updateTodo(id, { restore: true }, userId);
+  return updateTodo(id, { restore: true }, userId, client);
 }
