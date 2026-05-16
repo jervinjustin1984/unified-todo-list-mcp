@@ -23,7 +23,17 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
 
 5. **Environment** — copy [`.env.example`](.env.example) to `.env.local` and set all variables. `NEXT_PUBLIC_SUPABASE_URL` should match `SUPABASE_URL`. **`SUPABASE_SERVICE_ROLE_KEY` must be the `service_role` secret**, not the `anon` key (the web UI uses your login session; REST/MCP use the service role with a JWT).
 6. **Local dev**: `npm install` → `npm run dev` → [http://localhost:3000](http://localhost:3000) (sign in at `/login`).
-7. **Vercel**: import repo, set the same env vars, redeploy.
+7. **Vercel** — required env vars (then **Redeploy** so `NEXT_PUBLIC_*` are baked into the build):
+
+   | Variable | Notes |
+   |----------|--------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **anon** key (not service_role) |
+   | `SUPABASE_URL` | Same URL |
+   | `SUPABASE_SERVICE_ROLE_KEY` | **service_role** secret |
+   | `SUPABASE_ANON_KEY` | Optional; middleware fallback if `NEXT_PUBLIC_*` missing |
+
+   If you see `MIDDLEWARE_INVOCATION_FAILED`, the middleware is usually missing `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_URL` at **build** time — add them in Vercel → Settings → Environment Variables → **Redeploy**.
 
 ## Web UI
 
