@@ -10,6 +10,7 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
 2. **Run migrations** in order in the SQL editor:
    - [`supabase/migrations/20250515120000_create_todos.sql`](supabase/migrations/20250515120000_create_todos.sql)
    - [`supabase/migrations/20250516120000_multi_user_auth.sql`](supabase/migrations/20250516120000_multi_user_auth.sql)
+   - [`supabase/migrations/20250517120000_mcp_oauth.sql`](supabase/migrations/20250517120000_mcp_oauth.sql)
 3. **Create your user** in Supabase Dashboard → Authentication → Users (email + password). Disable public signup if you want invite-only.
 4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
 
@@ -35,6 +36,8 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
    | `SUPABASE_URL` | Same URL |
    | `SUPABASE_SERVICE_ROLE_KEY` | **service_role** secret |
    | `SUPABASE_ANON_KEY` | Optional; middleware fallback if `NEXT_PUBLIC_*` missing |
+   | `MCP_OAUTH_CODE_SECRET` | Optional; encrypts OAuth codes at rest (defaults to service role key) |
+   | `MCP_OAUTH_ISSUER` | Optional; override OAuth issuer URL (defaults to request origin) |
 
    If you see `MIDDLEWARE_INVOCATION_FAILED`, the middleware is usually missing `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_URL` at **build** time — add them in Vercel → Settings → Environment Variables → **Redeploy**.
 
@@ -73,12 +76,24 @@ Use that value as `Bearer` for REST and MCP.
 ## MCP (remote)
 
 - **URL**: `https://YOUR_DOMAIN/api/mcp`
-- **Auth**: `Authorization: Bearer <supabase_access_token>`
-- **Metadata**: `https://YOUR_DOMAIN/.well-known/oauth-protected-resource` (points clients at Supabase Auth)
+- **OAuth** (recommended for Claude Desktop): add the MCP URL only; the client discovers OAuth via `/.well-known/oauth-protected-resource` and signs you in on the app domain (`/login`). Tokens are Supabase JWTs with refresh via `/oauth/token`.
+- **Metadata**: `https://YOUR_DOMAIN/.well-known/oauth-protected-resource`, `https://YOUR_DOMAIN/.well-known/oauth-authorization-server`
 
 Tools: `list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo`.
 
-**Cursor**: configure remote MCP with the URL above and a Bearer token from the sign-in step (or OAuth if your Cursor version supports Supabase as the authorization server). If native OAuth fails, use [mcp-remote](https://www.npmjs.com/package/mcp-remote) as a stdio bridge.
+### Claude Desktop (URL-only)
+
+In Claude → Settings → Connectors, add remote MCP:
+
+```text
+https://unified-todo-list-mcp.vercel.app/api/mcp
+```
+
+Complete the browser login when prompted. No manual Bearer token or `mcp-remote` required.
+
+### Fallback: manual Bearer (curl / scripts)
+
+Use a Supabase access token as `Authorization: Bearer <token>` (see REST section above). For Claude, you can still use [mcp-remote](https://www.npmjs.com/package/mcp-remote) with a pasted JWT if OAuth is unavailable.
 
 ## Project layout
 
@@ -87,6 +102,8 @@ Tools: `list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, 
 - [`src/app/api/todos/`](src/app/api/todos/) — REST
 - [`src/app/api/[transport]/route.ts`](src/app/api/[transport]/route.ts) — MCP (`/api/mcp`)
 - [`src/lib/supabase/`](src/lib/supabase/) — SSR session clients
+- [`src/lib/mcp-oauth/`](src/lib/mcp-oauth/) — MCP OAuth authorization server
+- [`src/app/oauth/`](src/app/oauth/) — `/oauth/register`, `/oauth/authorize`, `/oauth/token`
 
 ## Adding more users later
 

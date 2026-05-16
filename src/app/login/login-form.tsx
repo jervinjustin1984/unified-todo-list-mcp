@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { resumeMcpOAuthAfterLogin } from "./actions";
 
 export function LoginForm() {
   const [email, setEmail] = useState("");
@@ -26,7 +27,8 @@ export function LoginForm() {
       return;
     }
 
-    window.location.href = "/";
+    const { redirect } = await resumeMcpOAuthAfterLogin();
+    window.location.href = redirect;
   }
 
   return (

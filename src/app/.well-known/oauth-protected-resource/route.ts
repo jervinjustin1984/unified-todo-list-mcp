@@ -1,15 +1,25 @@
 import {
+  generateProtectedResourceMetadata,
+  getPublicOrigin,
   metadataCorsOptionsRequestHandler,
-  protectedResourceHandler,
 } from "mcp-handler";
-import { getSupabaseIssuer, getSupabaseUrl } from "@/lib/supabase/env";
+import { mcpResourceUrl } from "@/lib/mcp-oauth/origin";
 
-const handler = protectedResourceHandler({
-  authServerUrls: [getSupabaseIssuer()],
-  resourceUrl: `${getSupabaseUrl()}/api/mcp`,
-});
+export async function GET(req: Request) {
+  const origin = getPublicOrigin(req);
+  const metadata = generateProtectedResourceMetadata({
+    authServerUrls: [origin],
+    resourceUrl: mcpResourceUrl(origin),
+  });
+  return new Response(JSON.stringify(metadata), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
 const corsHandler = metadataCorsOptionsRequestHandler();
 
-export const GET = handler;
 export const OPTIONS = corsHandler;
