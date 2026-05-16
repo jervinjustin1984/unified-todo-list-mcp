@@ -21,7 +21,10 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
 
    Then optionally: `ALTER TABLE public.todos ALTER COLUMN user_id SET NOT NULL;`
 
-5. **Environment** — copy [`.env.example`](.env.example) to `.env.local` and set all variables. `NEXT_PUBLIC_SUPABASE_URL` should match `SUPABASE_URL`. **`SUPABASE_SERVICE_ROLE_KEY` must be the `service_role` secret**, not the `anon` key (the web UI uses your login session; REST/MCP use the service role with a JWT).
+5. **Environment** — copy [`.env.example`](.env.example) to `.env.local`. In Supabase **Settings → API Keys**:
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = **anon** (legacy `eyJ…`) or **publishable** (`sb_publishable_…`) — used for **login**
+   - `SUPABASE_SERVICE_ROLE_KEY` = **service_role** (legacy `eyJ…`) or **secret** (`sb_secret_…`) — **server only**, never in `NEXT_PUBLIC_*`
+   - Wrong keys cause **"Invalid API Key"** on login (e.g. Stripe `sk_live_…`, or putting `sb_publishable_` in `SUPABASE_SERVICE_ROLE_KEY`)
 6. **Local dev**: `npm install` → `npm run dev` → [http://localhost:3000](http://localhost:3000) (sign in at `/login`).
 7. **Vercel** — required env vars (then **Redeploy** so `NEXT_PUBLIC_*` are baked into the build):
 

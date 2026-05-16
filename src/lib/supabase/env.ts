@@ -1,5 +1,10 @@
 /** Env helpers for Supabase (server, edge middleware, and browser). */
 
+import {
+  assertClientAnonKey,
+  assertServiceRoleKey,
+} from "@/lib/supabase/validate-keys";
+
 export function getSupabaseUrl(): string {
   const url =
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
@@ -21,6 +26,22 @@ export function getSupabaseAnonKey(): string {
       "Missing Supabase anon key. Set NEXT_PUBLIC_SUPABASE_ANON_KEY and/or SUPABASE_ANON_KEY.",
     );
   }
+  assertClientAnonKey(
+    key,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      ? "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+      : "SUPABASE_ANON_KEY",
+  );
+  return key;
+}
+
+/** Server-only service role / secret key (never use in browser or NEXT_PUBLIC_*). */
+export function getSupabaseServiceRoleKey(): string {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+  }
+  assertServiceRoleKey(key);
   return key;
 }
 

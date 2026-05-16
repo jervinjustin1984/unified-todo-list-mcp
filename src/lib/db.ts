@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseServiceRoleKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 let admin: SupabaseClient | null = null;
 
@@ -16,18 +17,8 @@ function decodeJwtRole(key: string): string | null {
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (admin) return admin;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  }
-
-  const role = decodeJwtRole(key);
-  if (role === "anon") {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is the anon key. Use the service_role secret from Supabase → Project Settings → API.",
-    );
-  }
+  const url = getSupabaseUrl();
+  const key = getSupabaseServiceRoleKey();
 
   admin = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
