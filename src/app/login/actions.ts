@@ -1,28 +1,41 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import {
   authorizeQueryFromPending,
   MCP_OAUTH_PENDING_COOKIE,
   parsePendingParams,
 } from "@/lib/mcp-oauth/pending";
 
-export async function resumeMcpOAuthAfterLogin(): Promise<{
-  redirect: string;
-}> {
-  const cookieStore = await cookies();
-  const pending = cookieStore.get(MCP_OAUTH_PENDING_COOKIE)?.value;
+export type SignInState = { error?: string } | null;
 
-  if (!pending) {
-    return { redirect: "/" };
+export async function signInAction(
+  _prev: SignInState,
+  formData: FormData,
+): Promise<SignInState> {
+  const email = String(formData.get("email") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+
+  if (!email || !password) {
+    return { error: "Email and password are required" };
   }
 
-  const params = parsePendingParams(pending);
-  if (!params) {
-    return { redirect: "/" };
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    return { error: error.message };
   }
 
-  return {
-    redirect: `/oauth/authorize?${authorizeQueryFromPending(params)}`,
-  };
+  const pending = (await cookies()).get(MCP_OAUTH_PENDING_COOKIE)?.value;
+  if (pending) {
+    const params = parsePendingParams(pending);
+    if (params) {
+      redirect(`/oauth/authorize?${authorizeQueryFromPending(params)}`);
+    }
+  }
+
+  redirect("/");
 }

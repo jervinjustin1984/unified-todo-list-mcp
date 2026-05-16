@@ -33,11 +33,11 @@ export async function completeAuthorize(
 
   const supabase = await createClient();
   const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-  if (sessionError || !session?.user) {
+  if (userError || !user) {
     const loginUrl = new URL("/login", origin);
     loginUrl.searchParams.set("oauth", "1");
     const res = NextResponse.redirect(loginUrl);
@@ -51,24 +51,46 @@ export async function completeAuthorize(
     return res;
   }
 
-  if (!session.refresh_token) {
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  if (sessionError || !session?.access_token || !session.refresh_token) {
     return oauthRedirectError(
       params.redirect_uri,
       "server_error",
-      "Session missing refresh token",
+      "Session missing tokens — sign in again",
       params.state,
     );
   }
 
-  const code = await createAuthorizationCode({
-    clientId: params.client_id,
-    userId: session.user.id,
-    redirectUri: params.redirect_uri,
-    codeChallenge: params.code_challenge,
-    codeChallengeMethod: params.code_challenge_method,
-    accessToken: session.access_token,
-    refreshToken: session.refresh_token,
-  });
+  let code: string;
+  try {
+    code = await createAuthorizationCode({
+      clientId: params.client_id,
+      userId: user.id,
+      redirectUri: params.redirect_uri,
+      codeChallenge: params.code_challenge,
+      codeChallengeMethod: params.code_challenge_method,
+      accessToken: session.access_token,
+      refreshToken: session.refresh_token,
+    });
+  } catch (err) {
+    console.error("[oauth/authorize] createAuthorizationCode:", err);
+    const loginUrl = new URL("/login", origin);
+    loginUrl.searchParams.set("oauth", "1");
+    loginUrl.searchParams.set("error", "oauth_server");
+    const res = NextResponse.redirect(loginUrl);
+    res.cookies.set(MCP_OAUTH_PENDING_COOKIE, serializePendingParams(params), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
+    return res;
+  }
 
   const redirect = new URL(params.redirect_uri);
   redirect.searchParams.set("code", code);
