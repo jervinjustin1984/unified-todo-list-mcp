@@ -1,12 +1,15 @@
 "use client";
 
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { useTransition } from "react";
 import {
   addTodoAction,
   archiveTodoAction,
   restoreTodoAction,
+  signOutAction,
   toggleTodoAction,
+  type ActionResult,
 } from "@/app/actions";
 import type { Todo } from "@/lib/types";
 
@@ -40,22 +43,43 @@ type Props = {
 
 export function TodoClient({ activeTodos, archivedTodos }: Props) {
   const [pending, startTransition] = useTransition();
+  const [addState, addFormAction] = useActionState<ActionResult | null, FormData>(
+    addTodoAction,
+    null,
+  );
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-col gap-8 px-4 py-10">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Todos</h1>
-        <p className="mt-1 text-sm text-foreground/70">
-          Active items (newest first). Checkbox toggles open ↔ completed.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Todos</h1>
+          <p className="mt-1 text-sm text-foreground/70">
+            Active items (newest first). Checkbox toggles open ↔ completed.
+          </p>
+        </div>
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="text-sm text-foreground/60 underline hover:text-foreground"
+          >
+            Sign out
+          </button>
+        </form>
       </header>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-foreground/60">
           Add
         </h2>
-        <form className="flex gap-2" action={addTodoAction}>
-          <AddTodoFields />
+        <form className="flex flex-col gap-2" action={addFormAction}>
+          <div className="flex gap-2">
+            <AddTodoFields />
+          </div>
+          {addState && !addState.ok ? (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {addState.error}
+            </p>
+          ) : null}
         </form>
       </section>
 

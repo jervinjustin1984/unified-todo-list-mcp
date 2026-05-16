@@ -1,57 +1,93 @@
 # Unified todo list (REST + MCP)
 
-Personal todo tracker with a **Next.js** app on **Vercel**, **Supabase Postgres**, **REST** routes, a **remote MCP** endpoint (Streamable HTTP), and a small **web UI** for testing. The web UI uses **server actions** so your `API_KEY` is never sent to the browser; only `curl`/scripts need the bearer token.
+Personal todo tracker with **Next.js** on **Vercel**, **Supabase Postgres + Auth**, **REST** routes, a **remote MCP** endpoint (Streamable HTTP), and a small **web UI**.
 
-## What you do next (checklist)
+Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP require `Authorization: Bearer <access_token>`.
 
-1. **Create a Supabase project** at [supabase.com](https://supabase.com) if you have not already.
-2. **Run the migration** in the Supabase SQL editor (or via Supabase CLI): open [`supabase/migrations/20250515120000_create_todos.sql`](supabase/migrations/20250515120000_create_todos.sql) and execute it against your database.
-3. **Create `.env.local`** from [`.env.example`](.env.example): set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `API_KEY` (a long random string).
-4. **Run locally**: `npm install` then `npm run dev` and open [http://localhost:3000](http://localhost:3000).
-5. **Push to GitHub** and **import the repo in Vercel**; add the same environment variables in the Vercel project settings.
+## Setup checklist
+
+1. **Supabase project** at [supabase.com](https://supabase.com).
+2. **Run migrations** in order in the SQL editor:
+   - [`supabase/migrations/20250515120000_create_todos.sql`](supabase/migrations/20250515120000_create_todos.sql)
+   - [`supabase/migrations/20250516120000_multi_user_auth.sql`](supabase/migrations/20250516120000_multi_user_auth.sql)
+3. **Create your user** in Supabase Dashboard → Authentication → Users (email + password). Disable public signup if you want invite-only.
+4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
+
+   ```sql
+   UPDATE public.todos
+   SET user_id = '<your-auth-user-uuid>'::uuid
+   WHERE user_id IS NULL;
+   ```
+
+   Then optionally: `ALTER TABLE public.todos ALTER COLUMN user_id SET NOT NULL;`
+
+5. **Environment** — copy [`.env.example`](.env.example) to `.env.local`. In Supabase **Settings → API Keys**:
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = **anon** (legacy `eyJ…`) or **publishable** (`sb_publishable_…`) — used for **login**
+   - `SUPABASE_SERVICE_ROLE_KEY` = **service_role** (legacy `eyJ…`) or **secret** (`sb_secret_…`) — **server only**, never in `NEXT_PUBLIC_*`
+   - Wrong keys cause **"Invalid API Key"** on login (e.g. Stripe `sk_live_…`, or putting `sb_publishable_` in `SUPABASE_SERVICE_ROLE_KEY`)
+6. **Local dev**: `npm install` → `npm run dev` → [http://localhost:3000](http://localhost:3000) (sign in at `/login`).
+7. **Vercel** — required env vars (then **Redeploy** so `NEXT_PUBLIC_*` are baked into the build):
+
+   | Variable | Notes |
+   |----------|--------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **anon** key (not service_role) |
+   | `SUPABASE_URL` | Same URL |
+   | `SUPABASE_SERVICE_ROLE_KEY` | **service_role** secret |
+   | `SUPABASE_ANON_KEY` | Optional; middleware fallback if `NEXT_PUBLIC_*` missing |
+
+   If you see `MIDDLEWARE_INVOCATION_FAILED`, the middleware is usually missing `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_URL` at **build** time — add them in Vercel → Settings → Environment Variables → **Redeploy**.
+
+## Web UI
+
+- Sign in at `/login` with your Supabase Auth user.
+- Todos are scoped to your `auth.users.id` via server session (no token in the browser for API calls).
 
 ## REST API
 
-All routes require:
-
 ```http
-Authorization: Bearer <API_KEY>
+Authorization: Bearer <supabase_access_token>
 ```
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/todos` | List todos. Query: `q`, `status`, `priority`, `category`, `includeArchived`, `archivedOnly` |
-| `POST` | `/api/todos` | Create todo (`name`, optional `status`, `priority`, `category`) |
-| `PATCH` | `/api/todos/:id` | Partial update; set `{ "restore": true }` to un-archive |
+| `GET` | `/api/todos` | List todos (`q`, `status`, `priority`, `category`, `includeArchived`, `archivedOnly`) |
+| `POST` | `/api/todos` | Create todo |
+| `PATCH` | `/api/todos/:id` | Update; `{ "restore": true }` to un-archive |
 | `DELETE` | `/api/todos/:id` | Archive (soft delete) |
 
-Example:
+### Get an access token for curl / scripts
+
+Sign in via the Supabase API (replace project URL and anon key):
 
 ```bash
-curl -sS -H "Authorization: Bearer $API_KEY" \
+curl -sS "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/token?grant_type=password" \
+  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name":"Buy milk"}' \
-  https://YOUR_DOMAIN/api/todos
+  -d '{"email":"you@example.com","password":"your-password"}' \
+  | jq -r .access_token
 ```
 
-Responses use camelCase fields: `id`, `userId`, `name`, `createdAt`, `status`, `priority`, `category`, `completedAt`, `archivedAt`.
+Use that value as `Bearer` for REST and MCP.
 
 ## MCP (remote)
 
-- **URL**: `https://YOUR_DOMAIN/api/mcp` (the `[transport]` segment is the literal path `mcp`).
-- **Auth**: `Authorization: Bearer <API_KEY>` (enforced by the server).
+- **URL**: `https://YOUR_DOMAIN/api/mcp`
+- **Auth**: `Authorization: Bearer <supabase_access_token>`
+- **Metadata**: `https://YOUR_DOMAIN/.well-known/oauth-protected-resource` (points clients at Supabase Auth)
 
-Tools: `list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo` (alias), `restore_todo`.
+Tools: `list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo`.
 
-**Cursor** (Streamable HTTP): add an MCP config entry pointing at that URL and configure the client to send the bearer token per [mcp-handler client docs](https://github.com/vercel/mcp-handler/blob/main/docs/CLIENTS.md). If your client only supports stdio, use `npx mcp-remote https://YOUR_DOMAIN/api/mcp` as in the mcp-handler README.
+**Cursor**: configure remote MCP with the URL above and a Bearer token from the sign-in step (or OAuth if your Cursor version supports Supabase as the authorization server). If native OAuth fails, use [mcp-remote](https://www.npmjs.com/package/mcp-remote) as a stdio bridge.
 
 ## Project layout
 
-- [`src/lib/todos-service.ts`](src/lib/todos-service.ts) — DB access shared by REST, MCP, and server actions
-- [`src/app/api/todos/`](src/app/api/todos/) — REST handlers
-- [`src/app/api/[transport]/route.ts`](src/app/api/[transport]/route.ts) — MCP handler (`/api/mcp`)
-- [`src/app/actions.ts`](src/app/actions.ts) — Server actions for the web UI
+- [`src/lib/auth.ts`](src/lib/auth.ts) — JWT verification (JWKS)
+- [`src/lib/todos-service.ts`](src/lib/todos-service.ts) — DB access (service role + `userId` filter)
+- [`src/app/api/todos/`](src/app/api/todos/) — REST
+- [`src/app/api/[transport]/route.ts`](src/app/api/[transport]/route.ts) — MCP (`/api/mcp`)
+- [`src/lib/supabase/`](src/lib/supabase/) — SSR session clients
 
-## Default user
+## Adding more users later
 
-Single-user v1: todos use `user_id` default **`jervinjustin`** in the database (see [`src/lib/constants.ts`](src/lib/constants.ts)).
+Create users in Supabase Dashboard (or enable signup). Each user only sees their own todos (RLS + app-layer `user_id` filter).

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApiKey } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { archiveTodo, updateTodo } from "@/lib/todos-service";
 
 const statusSchema = z.enum(["open", "in_progress", "completed"]);
@@ -27,8 +27,8 @@ const patchBodySchema = z
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const denied = requireApiKey(request);
-  if (denied) return denied;
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
@@ -63,7 +63,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const todo = await updateTodo(id, parsed.data);
+    const todo = await updateTodo(id, parsed.data, auth.userId);
     if (!todo) {
       return NextResponse.json(
         { error: { message: "Todo not found", code: "not_found" } },
@@ -81,8 +81,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
-  const denied = requireApiKey(request);
-  if (denied) return denied;
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) {
@@ -93,7 +93,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const todo = await archiveTodo(id);
+    const todo = await archiveTodo(id, auth.userId);
     if (!todo) {
       return NextResponse.json(
         { error: { message: "Todo not found", code: "not_found" } },
