@@ -1,10 +1,16 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  authorizeQueryFromPending,
+  MCP_OAUTH_PENDING_COOKIE,
+  parsePendingParams,
+} from "@/lib/mcp-oauth/pending";
 import { getSupabaseMiddlewareConfig } from "@/lib/supabase/env";
 
 function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api")) return true;
   if (pathname.startsWith("/auth")) return true;
+  if (pathname.startsWith("/oauth")) return true;
   if (pathname === "/login") return true;
   if (pathname.startsWith("/.well-known")) return true;
   return false;
@@ -61,6 +67,16 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && request.nextUrl.pathname === "/login") {
+    if (request.nextUrl.searchParams.get("oauth") === "1") {
+      const pending = request.cookies.get(MCP_OAUTH_PENDING_COOKIE)?.value;
+      const params = pending ? parsePendingParams(pending) : null;
+      if (params) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/oauth/authorize";
+        url.search = authorizeQueryFromPending(params);
+        return NextResponse.redirect(url);
+      }
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
