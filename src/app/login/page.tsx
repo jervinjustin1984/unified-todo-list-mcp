@@ -21,6 +21,13 @@ export default async function LoginPage({ searchParams }: Props) {
           Sign-in failed. Try again.
         </p>
       ) : null}
+      {params.error === "oauth_server" ? (
+        <p className="mt-3 text-sm text-red-600 dark:text-red-400">
+          Could not complete MCP connection. Ensure the{" "}
+          <code className="text-xs">mcp_oauth</code> migration has been applied in
+          Supabase, then try Connect again in Claude.
+        </p>
+      ) : null}
       <div className="mt-8">
         <LoginForm />
       </div>
