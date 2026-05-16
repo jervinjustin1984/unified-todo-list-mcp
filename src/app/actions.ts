@@ -1,30 +1,38 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import {
-  archiveTodo,
-  createTodo,
-  restoreTodo,
-  toggleTodoCompletedUi,
-} from "@/lib/todos-service";
+  archiveTodoForSession,
+  createTodoForSession,
+  restoreTodoForSession,
+  toggleTodoForSession,
+} from "@/lib/todos-service-web";
 
-export async function addTodoAction(formData: FormData) {
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export async function addTodoAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
   const name = String(formData.get("name") ?? "");
   const trimmed = name.trim();
   if (!trimmed) {
-    return;
+    return { ok: false, error: "Name is required" };
   }
   try {
-    await createTodo({ name: trimmed });
+    await createTodoForSession({ name: trimmed });
     revalidatePath("/");
-  } catch {
-    // v1: errors surface on next navigation; add toast later
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to add todo";
+    return { ok: false, error: message };
   }
 }
 
 export async function toggleTodoAction(id: string) {
   try {
-    const todo = await toggleTodoCompletedUi(id);
+    const todo = await toggleTodoForSession(id);
     if (!todo) {
       return { ok: false as const, error: "Todo not found or archived" };
     }
@@ -38,7 +46,7 @@ export async function toggleTodoAction(id: string) {
 
 export async function archiveTodoAction(id: string) {
   try {
-    const todo = await archiveTodo(id);
+    const todo = await archiveTodoForSession(id);
     if (!todo) {
       return { ok: false as const, error: "Todo not found" };
     }
@@ -52,7 +60,7 @@ export async function archiveTodoAction(id: string) {
 
 export async function restoreTodoAction(id: string) {
   try {
-    const todo = await restoreTodo(id);
+    const todo = await restoreTodoForSession(id);
     if (!todo) {
       return { ok: false as const, error: "Todo not found" };
     }
@@ -62,4 +70,11 @@ export async function restoreTodoAction(id: string) {
     const message = e instanceof Error ? e.message : "Failed to restore";
     return { ok: false as const, error: message };
   }
+}
+
+export async function signOutAction() {
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  redirect("/login");
 }

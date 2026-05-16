@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApiKey } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { createTodo, listTodos } from "@/lib/todos-service";
 import type { TodoPriority, TodoStatus } from "@/lib/types";
 
@@ -22,8 +22,8 @@ function parseBool(v: string | null): boolean | undefined {
 }
 
 export async function GET(request: NextRequest) {
-  const denied = requireApiKey(request);
-  if (denied) return denied;
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") ?? undefined;
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const todos = await listTodos({
+      userId: auth.userId,
       q,
       status: statusParsed,
       priority: priorityParsed,
@@ -76,8 +77,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const denied = requireApiKey(request);
-  if (denied) return denied;
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   let body: unknown;
   try {
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const todo = await createTodo(parsed.data);
+    const todo = await createTodo({ ...parsed.data, userId: auth.userId });
     return NextResponse.json({ todo }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";

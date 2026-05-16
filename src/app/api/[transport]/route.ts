@@ -1,6 +1,6 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { z } from "zod";
+import { userIdFromMcpExtra, verifyMcpBearerToken } from "@/lib/auth";
 import {
   archiveTodo,
   createTodo,
@@ -18,6 +18,14 @@ function jsonText(value: unknown) {
   };
 }
 
+function requireMcpUserId(extra: { authInfo?: import("@modelcontextprotocol/sdk/server/auth/types.js").AuthInfo }) {
+  const userId = userIdFromMcpExtra(extra);
+  if (!userId) {
+    return { error: "Unauthorized: missing auth context" } as const;
+  }
+  return { userId } as const;
+}
+
 const mcpCore = createMcpHandler(
   (server) => {
     server.registerTool(
@@ -25,7 +33,7 @@ const mcpCore = createMcpHandler(
       {
         title: "List todos",
         description:
-          "List todos for the default user. By default excludes archived items.",
+          "List todos for the authenticated user. By default excludes archived items.",
         inputSchema: {
           q: z.string().optional().describe("Search substring for name"),
           status: statusZ.optional(),
@@ -35,8 +43,11 @@ const mcpCore = createMcpHandler(
           archived_only: z.boolean().optional(),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
         const todos = await listTodos({
+          userId: auth.userId,
           q: args.q,
           status: args.status,
           priority: args.priority,
@@ -61,8 +72,11 @@ const mcpCore = createMcpHandler(
           include_archived: z.boolean().optional(),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
         const todos = await listTodos({
+          userId: auth.userId,
           q: args.q,
           status: args.status,
           priority: args.priority,
@@ -77,7 +91,7 @@ const mcpCore = createMcpHandler(
       "add_todo",
       {
         title: "Add todo",
-        description: "Create a new todo.",
+        description: "Create a new todo for the authenticated user.",
         inputSchema: {
           name: z.string().min(1).max(2000),
           status: statusZ.optional(),
@@ -85,8 +99,11 @@ const mcpCore = createMcpHandler(
           category: z.string().max(200).nullable().optional(),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
         const todo = await createTodo({
+          userId: auth.userId,
           name: args.name,
           status: args.status,
           priority: args.priority,
@@ -100,7 +117,8 @@ const mcpCore = createMcpHandler(
       "update_todo",
       {
         title: "Update todo",
-        description: "Update fields on a todo (status, priority, category, name, restore).",
+        description:
+          "Update fields on a todo (status, priority, category, name, restore).",
         inputSchema: {
           id: z.string().uuid(),
           name: z.string().min(1).max(2000).optional(),
@@ -110,9 +128,11 @@ const mcpCore = createMcpHandler(
           restore: z.boolean().optional(),
         },
       },
-      async (args) => {
+      async (args, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
         const { id, ...patch } = args;
-        const todo = await updateTodo(id, patch);
+        const todo = await updateTodo(id, patch, auth.userId);
         if (!todo) {
           return jsonText({ error: "Todo not found", id: args.id });
         }
@@ -127,8 +147,10 @@ const mcpCore = createMcpHandler(
         description: "Soft-delete a todo (sets archived_at).",
         inputSchema: { id: z.string().uuid() },
       },
-      async ({ id }) => {
-        const todo = await archiveTodo(id);
+      async ({ id }, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
+        const todo = await archiveTodo(id, auth.userId);
         if (!todo) {
           return jsonText({ error: "Todo not found", id });
         }
@@ -143,8 +165,10 @@ const mcpCore = createMcpHandler(
         description: "Alias for archive_todo — does not permanently delete.",
         inputSchema: { id: z.string().uuid() },
       },
-      async ({ id }) => {
-        const todo = await archiveTodo(id);
+      async ({ id }, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
+        const todo = await archiveTodo(id, auth.userId);
         if (!todo) {
           return jsonText({ error: "Todo not found", id });
         }
@@ -159,8 +183,10 @@ const mcpCore = createMcpHandler(
         description: "Clear archived_at so the todo is active again.",
         inputSchema: { id: z.string().uuid() },
       },
-      async ({ id }) => {
-        const todo = await restoreTodo(id);
+      async ({ id }, extra) => {
+        const auth = requireMcpUserId(extra);
+        if ("error" in auth) return jsonText(auth);
+        const todo = await restoreTodo(id, auth.userId);
         if (!todo) {
           return jsonText({ error: "Todo not found", id });
         }
@@ -171,7 +197,7 @@ const mcpCore = createMcpHandler(
   {
     serverInfo: {
       name: "unified-todo-list",
-      version: "0.1.0",
+      version: "0.2.0",
     },
   },
   {
@@ -181,22 +207,7 @@ const mcpCore = createMcpHandler(
   },
 );
 
-async function verifyMcpToken(
-  _req: Request,
-  bearerToken?: string,
-): Promise<AuthInfo | undefined> {
-  const expected = process.env.API_KEY;
-  if (!expected || !bearerToken || bearerToken !== expected) {
-    return undefined;
-  }
-  return {
-    token: bearerToken,
-    clientId: "personal",
-    scopes: [],
-  };
-}
-
-const mcp = withMcpAuth(mcpCore, verifyMcpToken, { required: true });
+const mcp = withMcpAuth(mcpCore, verifyMcpBearerToken, { required: true });
 
 export const GET = mcp;
 export const POST = mcp;

@@ -1,15 +1,21 @@
-import { listTodos } from "@/lib/todos-service";
+import { listTodosForSession } from "@/lib/todos-service-web";
+import { getSessionUserId } from "@/lib/session";
 import { TodoClient } from "./todo-client";
 
 export default async function Home() {
-  let activeTodos: Awaited<ReturnType<typeof listTodos>> = [];
-  let archivedTodos: Awaited<ReturnType<typeof listTodos>> = [];
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return null;
+  }
+
+  let activeTodos: Awaited<ReturnType<typeof listTodosForSession>> = [];
+  let archivedTodos: Awaited<ReturnType<typeof listTodosForSession>> = [];
   let loadError: string | null = null;
 
   try {
     [activeTodos, archivedTodos] = await Promise.all([
-      listTodos({ includeArchived: false }),
-      listTodos({ archivedOnly: true }),
+      listTodosForSession({ includeArchived: false }),
+      listTodosForSession({ archivedOnly: true }),
     ]);
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load todos";
@@ -23,13 +29,9 @@ export default async function Home() {
           Could not load todos: {loadError}
         </p>
         <p className="mt-3 text-sm text-foreground/70">
-          Set <code className="rounded bg-foreground/10 px-1">SUPABASE_URL</code>{" "}
-          and{" "}
-          <code className="rounded bg-foreground/10 px-1">
-            SUPABASE_SERVICE_ROLE_KEY
-          </code>{" "}
-          in <code className="rounded bg-foreground/10 px-1">.env.local</code>,
-          run the SQL migration in Supabase, then refresh.
+          If you migrated from the old schema, backfill{" "}
+          <code className="rounded bg-foreground/10 px-1">user_id</code> to your
+          auth user UUID in Supabase (see README), then refresh.
         </p>
       </main>
     );
