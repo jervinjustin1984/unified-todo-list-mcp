@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { getSupabaseMiddlewareConfig } from "@/lib/supabase/env";
 
 function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api")) return true;
@@ -11,20 +11,34 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function updateSession(request: NextRequest) {
+  const config = getSupabaseMiddlewareConfig();
+  if (!config) {
+    console.error(
+      "[middleware] Missing Supabase env. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY (and redeploy), or SUPABASE_URL + SUPABASE_ANON_KEY on Vercel.",
+    );
+    if (isPublicPath(request.nextUrl.pathname)) {
+      return NextResponse.next();
+    }
+    return new NextResponse(
+      "Server misconfiguration: Supabase environment variables are not set. See README.",
+      { status: 503 },
+    );
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+  const supabase = createServerClient(config.url, config.anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => {
-          request.cookies.set(name, value);
-        });
+      setAll(cookiesToSet, headers) {
         supabaseResponse = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) => {
           supabaseResponse.cookies.set(name, value, options);
+        });
+        Object.entries(headers).forEach(([key, value]) => {
+          supabaseResponse.headers.set(key, value);
         });
       },
     },
@@ -32,7 +46,12 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+
+  if (error) {
+    console.error("[middleware] getUser error:", error.message);
+  }
 
   if (!user && !isPublicPath(request.nextUrl.pathname)) {
     const url = request.nextUrl.clone();

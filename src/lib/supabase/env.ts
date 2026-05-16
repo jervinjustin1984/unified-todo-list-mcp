@@ -1,18 +1,45 @@
+/** Env helpers for Supabase (server, edge middleware, and browser). */
+
 export function getSupabaseUrl(): string {
   const url =
-    process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   if (!url) {
-    throw new Error("Missing SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+    throw new Error(
+      "Missing Supabase URL. Set NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_URL.",
+    );
   }
   return url.replace(/\/$/, "");
 }
 
+/** Anon/publishable key for session clients (browser + middleware). */
 export function getSupabaseAnonKey(): string {
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    process.env.SUPABASE_ANON_KEY;
   if (!key) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    throw new Error(
+      "Missing Supabase anon key. Set NEXT_PUBLIC_SUPABASE_ANON_KEY and/or SUPABASE_ANON_KEY.",
+    );
   }
   return key;
+}
+
+/**
+ * Safe read for Edge middleware — returns null instead of throwing so we can
+ * return a clear 503 instead of MIDDLEWARE_INVOCATION_FAILED.
+ */
+export function getSupabaseMiddlewareConfig(): {
+  url: string;
+  anonKey: string;
+} | null {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  const anonKey =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    return null;
+  }
+  return { url: url.replace(/\/$/, ""), anonKey };
 }
 
 export function getSupabaseIssuer(): string {
