@@ -14,5 +14,9 @@ export async function GET(request: Request) {
     }
   }
 
+  if (next === "/reset-password") {
+    return NextResponse.redirect(`${origin}/login?error=reset`);
+  }
+
   return NextResponse.redirect(`${origin}/login?error=auth`);
 }

@@ -14,7 +14,10 @@ Auth for REST and MCP: **`Authorization: Bearer`** with either a **Supabase JWT*
    - [`supabase/migrations/20250518120000_todo_source.sql`](supabase/migrations/20250518120000_todo_source.sql)
    - [`supabase/migrations/20250518120001_todo_source_open.sql`](supabase/migrations/20250518120001_todo_source_open.sql) (only if you ran an earlier version of `20250518120000` with the enum check)
    - [`supabase/migrations/20250519120000_user_api_keys.sql`](supabase/migrations/20250519120000_user_api_keys.sql)
-3. **Create your user** in Supabase Dashboard → Authentication → Users (email + password). Disable public signup if you want invite-only.
+3. **Auth (Supabase Dashboard → Authentication)**:
+   - **Providers → Email**: enable sign ups; turn **Confirm email** off if you want immediate access after `/signup`.
+   - **URL configuration**: set **Site URL** and add redirect URLs for `/auth/callback` (e.g. `http://localhost:3000/auth/callback` and your production origin).
+   - Users can register at `/signup` and reset passwords at `/forgot-password`. Admins can still create users in the Dashboard.
 4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
 
    ```sql
@@ -46,7 +49,8 @@ Auth for REST and MCP: **`Authorization: Bearer`** with either a **Supabase JWT*
 
 ## Web UI
 
-- Sign in at `/login` with your Supabase Auth user.
+- **Sign up** at `/signup` or **sign in** at `/login`.
+- **Forgot password** at `/forgot-password` (email reset link → set new password).
 - Todos are scoped to your `auth.users.id` via server session (no token in the browser for API calls).
 - **API keys** at [`/settings/api-keys`](http://localhost:3000/settings/api-keys) — per-user `utl_…` tokens for Shortcuts, curl, and MCP (full secret listed in Settings v1).
 
@@ -119,6 +123,6 @@ Use a Supabase access token as `Authorization: Bearer <token>` (see REST section
 - [`src/lib/mcp-oauth/`](src/lib/mcp-oauth/) — MCP OAuth authorization server
 - [`src/app/oauth/`](src/app/oauth/) — `/oauth/register`, `/oauth/authorize`, `/oauth/token`
 
-## Adding more users later
+## Users
 
-Create users in Supabase Dashboard (or enable signup). Each user only sees their own todos (RLS + app-layer `user_id` filter).
+Open registration at `/signup`. Each user only sees their own todos (RLS + app-layer `user_id` filter). Admins can still add users in Supabase Dashboard.
