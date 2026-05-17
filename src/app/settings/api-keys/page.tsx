@@ -1,3 +1,4 @@
+import { getSiteOrigin } from "@/lib/app-origin";
 import { listApiKeysForUser } from "@/lib/api-keys";
 import { getSessionUserId } from "@/lib/session";
 import { ApiKeysClient } from "./api-keys-client";
@@ -35,5 +36,8 @@ export default async function ApiKeysPage() {
     );
   }
 
-  return <ApiKeysClient keys={keys} />;
+  const origin = await getSiteOrigin();
+  const todosApiUrl = `${origin}/api/todos`;
+
+  return <ApiKeysClient keys={keys} todosApiUrl={todosApiUrl} />;
 }
