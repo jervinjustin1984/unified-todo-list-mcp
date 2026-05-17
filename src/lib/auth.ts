@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { NextResponse } from "next/server";
+import { isPersonalApiKey, verifyPersonalApiKey } from "@/lib/api-keys";
 import {
   getSupabaseIssuer,
   getSupabaseJwksUrl,
@@ -54,6 +55,17 @@ export async function verifySupabaseAccessToken(
   }
 }
 
+export async function resolveAuthUser(
+  bearerToken: string,
+): Promise<AuthUser | null> {
+  if (isPersonalApiKey(bearerToken)) {
+    const key = await verifyPersonalApiKey(bearerToken);
+    if (!key) return null;
+    return { userId: key.userId };
+  }
+  return verifySupabaseAccessToken(bearerToken);
+}
+
 export async function requireAuth(
   request: Request,
 ): Promise<AuthUser | NextResponse> {
@@ -65,7 +77,7 @@ export async function requireAuth(
     );
   }
 
-  const user = await verifySupabaseAccessToken(token);
+  const user = await resolveAuthUser(token);
   if (!user) {
     return NextResponse.json(
       { error: { message: "Invalid or expired token", code: "unauthorized" } },
@@ -82,7 +94,7 @@ export async function verifyMcpBearerToken(
 ): Promise<AuthInfo | undefined> {
   if (!bearerToken) return undefined;
 
-  const user = await verifySupabaseAccessToken(bearerToken);
+  const user = await resolveAuthUser(bearerToken);
   if (!user) return undefined;
 
   return {
