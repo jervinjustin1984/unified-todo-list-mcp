@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { useTransition } from "react";
@@ -57,14 +58,22 @@ export function TodoClient({ activeTodos, archivedTodos }: Props) {
             Active items (newest first). Checkbox toggles open ↔ completed.
           </p>
         </div>
-        <form action={signOutAction}>
-          <button
-            type="submit"
+        <div className="flex flex-col items-end gap-2">
+          <Link
+            href="/settings/api-keys"
             className="text-sm text-foreground/60 underline hover:text-foreground"
           >
-            Sign out
-          </button>
-        </form>
+            API keys
+          </Link>
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="text-sm text-foreground/60 underline hover:text-foreground"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
       </header>
 
       <section className="flex flex-col gap-3">

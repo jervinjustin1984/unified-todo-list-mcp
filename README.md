@@ -2,7 +2,7 @@
 
 Personal todo tracker with **Next.js** on **Vercel**, **Supabase Postgres + Auth**, **REST** routes, a **remote MCP** endpoint (Streamable HTTP), and a small **web UI**.
 
-Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP require `Authorization: Bearer <access_token>`.
+Auth for REST and MCP: **`Authorization: Bearer`** with either a **Supabase JWT** (short-lived) or a personal **`utl_…` API key** (long-lived; create under **API keys** in the web UI).
 
 ## Setup checklist
 
@@ -13,6 +13,7 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
    - [`supabase/migrations/20250517120000_mcp_oauth.sql`](supabase/migrations/20250517120000_mcp_oauth.sql)
    - [`supabase/migrations/20250518120000_todo_source.sql`](supabase/migrations/20250518120000_todo_source.sql)
    - [`supabase/migrations/20250518120001_todo_source_open.sql`](supabase/migrations/20250518120001_todo_source_open.sql) (only if you ran an earlier version of `20250518120000` with the enum check)
+   - [`supabase/migrations/20250519120000_user_api_keys.sql`](supabase/migrations/20250519120000_user_api_keys.sql)
 3. **Create your user** in Supabase Dashboard → Authentication → Users (email + password). Disable public signup if you want invite-only.
 4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
 
@@ -47,11 +48,12 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
 
 - Sign in at `/login` with your Supabase Auth user.
 - Todos are scoped to your `auth.users.id` via server session (no token in the browser for API calls).
+- **API keys** at [`/settings/api-keys`](http://localhost:3000/settings/api-keys) — per-user `utl_…` tokens for Shortcuts, curl, and MCP (full secret listed in Settings v1).
 
 ## REST API
 
 ```http
-Authorization: Bearer <supabase_access_token>
+Authorization: Bearer <supabase_access_token | utl_...>
 ```
 
 | Method | Path | Description |
@@ -74,6 +76,16 @@ curl -sS "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/token?grant_type=password" \
 ```
 
 Use that value as `Bearer` for REST and MCP.
+
+### Personal API keys (`utl_…`)
+
+1. Sign in → **API keys** → create a key (e.g. `Siri`).
+2. Use `Authorization: Bearer utl_…` on REST and MCP (same as JWT).
+3. Revoke lost keys from the same page.
+
+### Siri / Apple Shortcuts
+
+See [docs/siri-shortcuts.md](docs/siri-shortcuts.md). Summary: Shortcut **POST**s to `/api/todos` with your `utl_…` key and `"source": "Siri via Shortcuts"`.
 
 ## MCP (remote)
 

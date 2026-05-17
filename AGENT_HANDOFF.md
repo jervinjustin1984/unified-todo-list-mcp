@@ -48,8 +48,8 @@ flowchart TB
 | Layer | Auth | DB access |
 |-------|------|-----------|
 | Web UI | Supabase SSR session cookie | User-scoped client → RLS (`todos-service-web.ts`) |
-| REST | `Authorization: Bearer` Supabase JWT | Service role + `userId` from JWT `sub` |
-| MCP | Same JWT (via OAuth or manual Bearer) | Same as REST |
+| REST | `Authorization: Bearer` Supabase JWT or `utl_…` API key | Service role + `userId` from JWT `sub` or key row |
+| MCP | Same (OAuth JWT or `utl_…`) | Same as REST |
 | MCP OAuth AS | Issues Supabase `access_token` + `refresh_token` at `/oauth/token` | Service role for `mcp_oauth_*` tables only |
 
 **IdP for credentials:** Supabase Auth. **OAuth authorization server:** this app (not Supabase `/auth/v1` as AS).
@@ -88,6 +88,7 @@ src/
 | `20250517120000_mcp_oauth.sql` | `mcp_oauth_clients`, `mcp_oauth_codes` (service role only; RLS enabled, no policies) |
 | `20250518120000_todo_source.sql` | `todos.source` free-form text at create only |
 | `20250518120001_todo_source_open.sql` | Drop enum check if old `20250518120000` was applied |
+| `20250519120000_user_api_keys.sql` | `user_api_keys` — personal `utl_…` Bearer (plaintext v1) |
 
 Backfill legacy rows: `UPDATE public.todos SET user_id = '<uuid>'::uuid WHERE user_id IS NULL;`
 
@@ -174,6 +175,8 @@ Claude `claude_desktop_config.json`: `mcp-remote` + `Authorization:${TODO_AUTH_H
 | Web status UI | Checkbox: open ↔ completed only; `in_progress` via API/MCP |
 | Archive | Soft delete (`archived_at`); restore supported |
 | Todo source | Set on create only; free-form string (REST optional, default `Website via API`; MCP/web use fixed defaults) |
+| API keys | Per-user `utl_…` at `/settings/api-keys`; Bearer on REST/MCP; plaintext in DB v1 (list shows full secret) |
+| Siri | Apple Shortcuts → `POST /api/todos` + `utl_…` + `source: Siri via Shortcuts` — see `docs/siri-shortcuts.md` |
 
 ---
 
@@ -220,7 +223,7 @@ npm run lint
 
 ## Not implemented / deferred
 
-- Personal long-lived MCP API keys (`utl_…`)
+- Hash-only API keys + show-once in Settings (v1 stores plaintext `secret`)
 - OAuth scopes per tool
 - Full `/oauth/revoke` (stub returns 200)
 - Public signup / invite emails

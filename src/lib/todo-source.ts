@@ -8,3 +8,4 @@ export const DEFAULT_REST_SOURCE = "Website via API";
 
 export const MCP_SOURCE = "Claude via MCP";
 export const WEB_SOURCE = "Web UI";
+export const SIRI_SOURCE = "Siri via Shortcuts";
