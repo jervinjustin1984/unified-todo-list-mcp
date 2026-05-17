@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
+import {
+  DEFAULT_REST_SOURCE,
+  SOURCE_MAX_LENGTH,
+} from "@/lib/todo-source";
 import { createTodo, listTodos } from "@/lib/todos-service";
 import type { TodoPriority, TodoStatus } from "@/lib/types";
 
@@ -12,6 +16,7 @@ const postBodySchema = z.object({
   status: statusSchema.optional(),
   priority: prioritySchema.optional(),
   category: z.string().max(200).nullable().optional(),
+  source: z.string().min(1).max(SOURCE_MAX_LENGTH).optional(),
 });
 
 function parseBool(v: string | null): boolean | undefined {
@@ -105,7 +110,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const todo = await createTodo({ ...parsed.data, userId: auth.userId });
+    const { source, ...rest } = parsed.data;
+    const todo = await createTodo({
+      ...rest,
+      userId: auth.userId,
+      source: source ?? DEFAULT_REST_SOURCE,
+    });
     return NextResponse.json({ todo }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";

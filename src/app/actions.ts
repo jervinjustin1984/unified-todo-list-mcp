@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { WEB_SOURCE } from "@/lib/todo-source";
 import {
   archiveTodoForSession,
   createTodoForSession,
@@ -21,7 +22,7 @@ export async function addTodoAction(
     return { ok: false, error: "Name is required" };
   }
   try {
-    await createTodoForSession({ name: trimmed });
+    await createTodoForSession({ name: trimmed, source: WEB_SOURCE });
     revalidatePath("/");
     return { ok: true };
   } catch (e) {

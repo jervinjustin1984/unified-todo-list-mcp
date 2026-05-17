@@ -1,94 +1,135 @@
 # Agent handoff: unified-todo-list-mcp
 
-Compressed context for continuing work or onboarding another agent.
+Compressed context for continuing work or onboarding another agent. **Read this first.**
 
-## Project
+## One-liner
 
-Personal todo app: **Next.js 16** on **Vercel**, **Supabase Postgres + Auth**, **REST** (`/api/todos`), **remote MCP** (`/api/mcp`), minimal web UI at `/`.
+Multi-user todo app: **Next.js 16** (Vercel) + **Supabase** (Postgres, Auth, RLS) + **REST** + **remote MCP** with **app-hosted OAuth** (Claude URL-only connect). Web UI at `/`.
 
-Repo was greenfield; now fully implemented. Original single-user `jervinjustin` text id → multi-user via `user_id` = Supabase `auth.users.id` (UUID).
+**Production:** `https://unified-todo-list-mcp.vercel.app`  
+**MCP URL:** `https://unified-todo-list-mcp.vercel.app/api/mcp`
 
-## Stack
+---
 
-- **DB**: Supabase Postgres; migrations in `supabase/migrations/`
-- **Web**: Server actions + `@supabase/ssr` session; RLS-aware client in `src/lib/todos-service-web.ts`
-- **REST/MCP**: Service role + explicit `userId` from verified credential in `src/lib/todos-service.ts`
-- **MCP**: `mcp-handler` + `@modelcontextprotocol/sdk`, Streamable HTTP at `/api/mcp`
-- **Auth (current)**: Supabase JWT in `Authorization: Bearer`; validated via JWKS in `src/lib/auth.ts`
+## Architecture
 
-## Key files
-
-| Path | Role |
-|------|------|
-| `src/lib/auth.ts` | JWT verify (`verifySupabaseAccessToken`), `requireAuth`, `verifyMcpBearerToken` |
-| `src/lib/todos-service.ts` | DB ops; optional `SupabaseClient` arg |
-| `src/lib/todos-service-web.ts` | Web UI uses session client |
-| `src/app/api/[transport]/route.ts` | MCP tools; `withMcpAuth(..., { required: true })` |
-| `src/app/.well-known/oauth-protected-resource/route.ts` | MCP resource metadata; AS = **app origin** |
-| `src/app/.well-known/oauth-authorization-server/route.ts` | OAuth AS metadata (RFC 8414) |
-| `src/app/oauth/*` | DCR, authorize, token, revoke |
-| `src/lib/mcp-oauth/` | PKCE, codes, clients, Supabase token handoff |
-| `src/middleware.ts` | Session refresh; protects `/` → `/login` |
-| `src/lib/supabase/validate-keys.ts` | Blocks wrong key types (Stripe, publishable in service_role slot, etc.) |
-
-## Env vars (Vercel + `.env.local`)
-
-- `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL` (same URL)
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — login / browser / middleware
-- `SUPABASE_SERVICE_ROLE_KEY` — server only (REST/MCP); **not** publishable/anon
-- Optional: `SUPABASE_ANON_KEY` — middleware fallback
-- **Removed**: `API_KEY` (replaced by Supabase JWT auth)
-
-Common mistakes: anon key in `SUPABASE_SERVICE_ROLE_KEY`; Stripe `sk_live_` in Supabase slots; duplicate `.env` lines.
-
-## Migrations
-
-1. `20250515120000_create_todos.sql` — initial `todos` table
-2. `20250516120000_multi_user_auth.sql` — `user_id` UUID + RLS
-3. `20250517120000_mcp_oauth.sql` — `mcp_oauth_clients`, `mcp_oauth_codes`
-
-Backfill if needed:
-
-```sql
-UPDATE public.todos SET user_id = '<auth-user-uuid>'::uuid WHERE user_id IS NULL;
+```mermaid
+flowchart TB
+  subgraph clients [Clients]
+    Web[Web_UI_session_cookie]
+    Claude[Claude_MCP_OAuth]
+    Curl[curl_REST_Bearer]
+  end
+  subgraph vercel [Next.js_on_Vercel]
+    MW[middleware_session_refresh]
+    Login["/login_server_action_signIn"]
+    OAuth["/oauth/*_AS_on_app_origin"]
+    WellKnown["/.well-known/oauth-*"]
+    REST["/api/todos"]
+    MCP["/api/mcp_withMcpAuth"]
+    Verify[auth.ts_JWKS_verify]
+  end
+  subgraph supa [Supabase]
+    Auth[Auth_JWT_issuer]
+    PG[(todos_RLS)]
+    OAuthTables[(mcp_oauth_clients_codes)]
+  end
+  Web --> MW --> Login
+  Claude --> WellKnown --> OAuth
+  OAuth --> Login
+  OAuth --> OAuthTables
+  Login --> Auth
+  MCP --> Verify --> Auth
+  REST --> Verify
+  Verify --> PG
+  Web --> PG
 ```
 
-## MCP tools
+| Layer | Auth | DB access |
+|-------|------|-----------|
+| Web UI | Supabase SSR session cookie | User-scoped client → RLS (`todos-service-web.ts`) |
+| REST | `Authorization: Bearer` Supabase JWT | Service role + `userId` from JWT `sub` |
+| MCP | Same JWT (via OAuth or manual Bearer) | Same as REST |
+| MCP OAuth AS | Issues Supabase `access_token` + `refresh_token` at `/oauth/token` | Service role for `mcp_oauth_*` tables only |
 
-`list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo` — scoped to authenticated user (`sub` / session).
+**IdP for credentials:** Supabase Auth. **OAuth authorization server:** this app (not Supabase `/auth/v1` as AS).
 
-## Issues already fixed
+---
 
-1. **Vercel `MIDDLEWARE_INVOCATION_FAILED`**: missing `NEXT_PUBLIC_*` at build; middleware `setAll` + cache headers + safe env + try/catch.
-2. **Login "Invalid API Key"**: wrong keys in `.env` (e.g. Stripe key, publishable as service_role).
-3. **Web UI empty / no inserts**: web path must use session Supabase client (RLS); service-role-only path saw no rows / blocked inserts. `addTodoAction` now surfaces errors.
-4. **Git push blocked (secret scanning)**: real keys in branch history (e.g. commit `c970d81` in `.env.example`). Fix: `git reset --soft main`, one clean commit, rotate Supabase keys.
+## Repo layout (essential)
 
-## Claude Desktop (current working path)
-
-Manual Supabase JWT (~1 hour TTL). Config uses `mcp-remote` + Bearer header:
-
-```json
-{
-  "mcpServers": {
-    "unified-todos": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote@latest",
-        "https://unified-todo-list-mcp.vercel.app/api/mcp",
-        "--header",
-        "Authorization:${TODO_AUTH_HEADER}"
-      ],
-      "env": {
-        "TODO_AUTH_HEADER": "Bearer <access_token>"
-      }
-    }
-  }
-}
+```
+supabase/migrations/     # Run in order in Supabase SQL editor
+src/
+  middleware.ts          # updateSession; public: /api, /oauth, /.well-known, /login, /auth
+  lib/
+    auth.ts              # JWKS verify; requireAuth; verifyMcpBearerToken
+    todos-service.ts     # CRUD; service role + userId filter
+    todos-service-web.ts # Web: session client + RLS
+    db.ts                # getSupabaseAdmin()
+    mcp-oauth/           # OAuth AS implementation (see below)
+    supabase/            # env, server/client, middleware, validate-keys
+  app/
+    page.tsx, actions.ts, todo-client.tsx
+    login/               # signInAction (server); OAuth resume via pending cookie
+    oauth/               # register, authorize, token, revoke
+    .well-known/         # oauth-protected-resource, oauth-authorization-server
+    api/todos/, api/[transport]/route.ts  # MCP at /api/mcp
 ```
 
-Get token:
+---
+
+## Database migrations (all required)
+
+| File | Purpose |
+|------|---------|
+| `20250515120000_create_todos.sql` | `todos` table |
+| `20250516120000_multi_user_auth.sql` | `user_id` UUID, RLS (`auth.uid() = user_id`) |
+| `20250517120000_mcp_oauth.sql` | `mcp_oauth_clients`, `mcp_oauth_codes` (service role only; RLS enabled, no policies) |
+| `20250518120000_todo_source.sql` | `todos.source` free-form text at create only |
+| `20250518120001_todo_source_open.sql` | Drop enum check if old `20250518120000` was applied |
+
+Backfill legacy rows: `UPDATE public.todos SET user_id = '<uuid>'::uuid WHERE user_id IS NULL;`
+
+---
+
+## MCP OAuth flow (implemented)
+
+Matches Marianatek Cousteau pattern: AS on **app origin**, Supabase only for human sign-in.
+
+1. Client reads `GET /.well-known/oauth-protected-resource` → `authorization_servers: [app origin]`, `resource: …/api/mcp`
+2. Client reads `GET /.well-known/oauth-authorization-server` → `/oauth/register`, `/oauth/authorize`, `/oauth/token`
+3. `POST /oauth/register` (DCR) → `client_id`, stores `redirect_uris`
+4. `GET /oauth/authorize?response_type=code&client_id&redirect_uri&code_challenge&code_challenge_method=S256&state`
+5. If no session → set httpOnly `mcp_oauth_pending` cookie → redirect `/login?oauth=1`
+6. **Sign-in must be server-side** (`src/app/login/actions.ts` `signInAction`) so session cookies exist before `/oauth/authorize` runs
+7. Authorized → insert one-time code in `mcp_oauth_codes` (encrypted tokens) → redirect `redirect_uri?code&state`
+8. `POST /oauth/token` → `authorization_code` + PKCE → returns Supabase JWT + refresh; `refresh_token` grant calls Supabase refresh
+
+**Tokens at MCP layer:** still Supabase JWTs; `verifyMcpBearerToken` unchanged (JWKS).
+
+**Optional env:** `MCP_OAUTH_CODE_SECRET` (encrypt codes at rest; defaults to service role key), `MCP_OAUTH_ISSUER` (override issuer URL).
+
+**Edge note:** `src/lib/mcp-oauth/pending.ts` is middleware-safe (no Node `crypto`). `crypto.ts` only imported from route handlers / server code, not middleware.
+
+---
+
+## Claude Desktop setup (primary)
+
+1. Settings → Connectors → add remote MCP URL only:
+   ```
+   https://unified-todo-list-mcp.vercel.app/api/mcp
+   ```
+2. Click **Connect** → browser opens app `/login` → sign in → should redirect back to Claude.
+3. Requires migration `20250517120000_mcp_oauth.sql` applied in Supabase.
+
+**Do not** use client-side `signInWithPassword` for OAuth login (causes session race → stuck on `/login`). Current code uses `signInAction` server action + `redirect()` to `/oauth/authorize`.
+
+---
+
+## Fallback: manual Bearer + mcp-remote
+
+If OAuth fails in a client, paste Supabase JWT:
 
 ```bash
 curl -sS "$SUPABASE_URL/auth/v1/token?grant_type=password" \
@@ -97,40 +138,94 @@ curl -sS "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -d '{"email":"...","password":"..."}' | jq -r .access_token
 ```
 
-Config file (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
+Claude `claude_desktop_config.json`: `mcp-remote` + `Authorization:${TODO_AUTH_HEADER}` where value is `Bearer <token>`. See README.
 
-- Valid JSON: comma after `preferences` object before `mcpServers`
-- Use `Authorization:${TODO_AUTH_HEADER}` with **no space before `:`**; value must include `Bearer ` prefix
+---
 
-## MCP OAuth (implemented)
+## Env vars
 
-**Marianatek/Cousteau-style** remote MCP: Claude adds URL → browser login on app domain → Supabase JWT + refresh via `/oauth/token`.
+| Variable | Role |
+|----------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` | Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser, middleware, OAuth token refresh |
+| `SUPABASE_SERVICE_ROLE_KEY` | REST/MCP DB, OAuth tables (**never** `NEXT_PUBLIC_*`) |
+| `SUPABASE_ANON_KEY` | Optional middleware fallback |
+| `MCP_OAUTH_CODE_SECRET` | Optional encryption key for auth codes |
+| `MCP_OAUTH_ISSUER` | Optional fixed issuer (else `getPublicOrigin(req)`) |
 
-- `/.well-known/oauth-protected-resource` → `authorization_servers: [app origin]`
-- `/.well-known/oauth-authorization-server` → `/oauth/authorize`, `/oauth/token`, `/oauth/register` (PKCE S256)
-- Sign-in uses existing `/login` + Supabase session; codes stored in `mcp_oauth_*` tables
+**Removed:** `API_KEY`.
 
-**Claude Desktop**: URL only — `https://unified-todo-list-mcp.vercel.app/api/mcp` (no `mcp-remote` Bearer env).
+**Common failures:** anon/publishable key in `SUPABASE_SERVICE_ROLE_KEY`; Stripe key in Supabase slots → "Invalid API Key" on login. Missing `NEXT_PUBLIC_*` at Vercel **build** → `MIDDLEWARE_INVOCATION_FAILED`.
 
-**Fallback**: manual JWT + `mcp-remote` (see below).
+---
 
-## Deploy
+## MCP tools
 
-- Production: `https://unified-todo-list-mcp.vercel.app`
-- Local: `npm run dev` → `/login`
-- `npm run build` and `npm run lint` pass
+`list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo` — all scoped to JWT `sub` / session user.
+
+---
 
 ## Product decisions (locked)
 
 | Topic | Choice |
 |-------|--------|
-| Audience | Multi-user (manual users in Supabase dashboard for now) |
-| REST + MCP auth | Same Bearer credential model |
-| Token type | Supabase JWT (JWKS validation) |
-| IdP | Supabase Auth |
-| Web checkbox | Open ↔ completed only; `in_progress` via API/MCP |
-| Archive | Soft delete + restore in v1 |
+| Audience | Multi-user; users created manually in Supabase Dashboard |
+| REST + MCP credential | Same Supabase JWT Bearer |
+| Web status UI | Checkbox: open ↔ completed only; `in_progress` via API/MCP |
+| Archive | Soft delete (`archived_at`); restore supported |
+| Todo source | Set on create only; free-form string (REST optional, default `Website via API`; MCP/web use fixed defaults) |
 
-## Related plan file
+---
 
-`.cursor/plans/oauth_vs_api_key_8859926f.plan.md` (may live under user’s `.cursor/plans/`)
+## Issues fixed (history)
+
+1. Vercel middleware crash — missing public env at build; safe env reads + try/catch.
+2. Wrong API keys in `.env` — validate-keys.ts; login "Invalid API Key".
+3. Web UI empty — must use session client (RLS), not service role alone.
+4. Git secret scan — keys in history; rotate Supabase keys.
+5. OAuth metadata pointed at Supabase AS — fixed to app origin.
+6. Claude OAuth login loop — client sign-in before server saw session; fixed with server `signInAction`.
+
+---
+
+## Troubleshooting Claude "Connect"
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Stays on `/login` after sign-in | Session cookie race (old client login) | Ensure deployed `signInAction` server action is live |
+| Red message about `mcp_oauth` migration | Tables missing | Run `20250517120000_mcp_oauth.sql` |
+| `invalid_client` / redirect_uri | DCR / URI mismatch | Claude re-registers on connect; check `mcp_oauth_clients` |
+| MCP 401 after connect | JWT verify / wrong issuer | Check `SUPABASE_URL`; token must be Supabase JWT |
+
+---
+
+## Commands
+
+```bash
+npm install
+npm run dev      # http://localhost:3000
+npm run build
+npm run lint
+```
+
+---
+
+## Docs
+
+- User setup: [README.md](README.md)
+- This file: agent onboarding / session continuity
+- Stale plan (historical): `.cursor/plans/oauth_vs_api_key_8859926f.plan.md` — JWT migration done; use this handoff for OAuth work
+
+---
+
+## Not implemented / deferred
+
+- Personal long-lived MCP API keys (`utl_…`)
+- OAuth scopes per tool
+- Full `/oauth/revoke` (stub returns 200)
+- Public signup / invite emails
+- Social login
+
+---
+
+*Last updated: MCP OAuth bridge + server-side OAuth login fix.*

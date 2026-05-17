@@ -1,3 +1,7 @@
+import type { TodoSource } from "@/lib/todo-source";
+
+export type { TodoSource };
+
 export type TodoStatus = "open" | "in_progress" | "completed";
 export type TodoPriority = "low" | "medium" | "high";
 
@@ -9,6 +13,7 @@ export type Todo = {
   status: TodoStatus;
   priority: TodoPriority;
   category: string | null;
+  source: TodoSource;
   completedAt: string | null;
   archivedAt: string | null;
 };
@@ -21,6 +26,7 @@ export type TodoRow = {
   status: TodoStatus;
   priority: TodoPriority;
   category: string | null;
+  source: TodoSource;
   completed_at: string | null;
   archived_at: string | null;
 };
