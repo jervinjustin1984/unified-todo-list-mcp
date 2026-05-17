@@ -1,6 +1,7 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 import { userIdFromMcpExtra, verifyMcpBearerToken } from "@/lib/auth";
+import { MCP_SOURCE } from "@/lib/todo-source";
 import {
   archiveTodo,
   createTodo,
@@ -105,6 +106,7 @@ const mcpCore = createMcpHandler(
         const todo = await createTodo({
           userId: auth.userId,
           name: args.name,
+          source: MCP_SOURCE,
           status: args.status,
           priority: args.priority,
           category: args.category,

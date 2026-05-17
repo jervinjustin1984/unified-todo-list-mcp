@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/db";
-import type { Todo, TodoPriority, TodoRow, TodoStatus } from "@/lib/types";
+import type { Todo, TodoPriority, TodoRow, TodoSource, TodoStatus } from "@/lib/types";
 
 export function rowToTodo(row: TodoRow): Todo {
   return {
@@ -11,6 +11,7 @@ export function rowToTodo(row: TodoRow): Todo {
     status: row.status,
     priority: row.priority,
     category: row.category,
+    source: row.source,
     completedAt: row.completed_at,
     archivedAt: row.archived_at,
   };
@@ -70,6 +71,7 @@ export async function listTodos(
 export type CreateTodoInput = {
   userId: string;
   name: string;
+  source: TodoSource;
   status?: TodoStatus;
   priority?: TodoPriority;
   category?: string | null;
@@ -84,6 +86,7 @@ export async function createTodo(
   const payload = {
     user_id: userId,
     name: input.name.trim(),
+    source: input.source.trim(),
     status: input.status ?? "open",
     priority: input.priority ?? "medium",
     category: input.category?.trim() || null,

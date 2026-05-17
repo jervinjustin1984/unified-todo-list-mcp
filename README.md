@@ -11,6 +11,8 @@ Auth uses **Supabase JWT access tokens** (not a shared API key). REST and MCP re
    - [`supabase/migrations/20250515120000_create_todos.sql`](supabase/migrations/20250515120000_create_todos.sql)
    - [`supabase/migrations/20250516120000_multi_user_auth.sql`](supabase/migrations/20250516120000_multi_user_auth.sql)
    - [`supabase/migrations/20250517120000_mcp_oauth.sql`](supabase/migrations/20250517120000_mcp_oauth.sql)
+   - [`supabase/migrations/20250518120000_todo_source.sql`](supabase/migrations/20250518120000_todo_source.sql)
+   - [`supabase/migrations/20250518120001_todo_source_open.sql`](supabase/migrations/20250518120001_todo_source_open.sql) (only if you ran an earlier version of `20250518120000` with the enum check)
 3. **Create your user** in Supabase Dashboard → Authentication → Users (email + password). Disable public signup if you want invite-only.
 4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
 
@@ -55,7 +57,7 @@ Authorization: Bearer <supabase_access_token>
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/todos` | List todos (`q`, `status`, `priority`, `category`, `includeArchived`, `archivedOnly`) |
-| `POST` | `/api/todos` | Create todo |
+| `POST` | `/api/todos` | Create todo; optional `source` string (max 200 chars, default `Website via API`) |
 | `PATCH` | `/api/todos/:id` | Update; `{ "restore": true }` to un-archive |
 | `DELETE` | `/api/todos/:id` | Archive (soft delete) |
 
