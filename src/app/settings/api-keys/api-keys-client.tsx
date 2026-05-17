@@ -9,6 +9,7 @@ import {
   type ApiKeyActionResult,
 } from "@/app/settings/api-keys/actions";
 import type { UserApiKey } from "@/lib/api-keys";
+import { SIRI_SOURCE } from "@/lib/todo-source";
 
 function CreateKeyFields() {
   const { pending } = useFormStatus();
@@ -40,9 +41,10 @@ function formatWhen(iso: string | null): string {
 
 type Props = {
   keys: UserApiKey[];
+  todosApiUrl: string;
 };
 
-export function ApiKeysClient({ keys }: Props) {
+export function ApiKeysClient({ keys, todosApiUrl }: Props) {
   const [pending, startTransition] = useTransition();
   const [createState, createFormAction] = useActionState<
     ApiKeyActionResult | null,
@@ -154,11 +156,44 @@ export function ApiKeysClient({ keys }: Props) {
         )}
       </section>
 
-      <p className="text-sm text-foreground/60">
-        Siri setup: see{" "}
-        <code className="rounded bg-foreground/10 px-1">docs/siri-shortcuts.md</code>{" "}
-        in the repo (or README).
-      </p>
+      <section className="flex flex-col gap-3 rounded-md border border-foreground/15 bg-foreground/[0.02] p-4">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-foreground/60">
+          Siri Shortcuts
+        </h2>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-foreground/80">
+          <li>Create an API key above (e.g. Siri) and copy the full <code className="rounded bg-foreground/10 px-1">utl_…</code> secret.</li>
+          <li>
+            In Shortcuts, add <strong>Get Contents of URL</strong>: method{" "}
+            <strong>POST</strong>, URL below.
+          </li>
+          <li>
+            Headers: <code className="rounded bg-foreground/10 px-1">Authorization</code> ={" "}
+            <code className="rounded bg-foreground/10 px-1">Bearer YOUR_utl_KEY</code>
+            ; <code className="rounded bg-foreground/10 px-1">Content-Type</code> ={" "}
+            <code className="rounded bg-foreground/10 px-1">application/json</code>.
+          </li>
+          <li>
+            Request body (JSON): use an <strong>Ask for Input</strong> or{" "}
+            <strong>Dictate Text</strong> variable for <code className="rounded bg-foreground/10 px-1">name</code>.
+          </li>
+          <li>Shortcut settings → <strong>Add to Siri</strong> for a voice phrase.</li>
+        </ol>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-foreground/60">API URL</p>
+          <code className="block break-all rounded bg-foreground/5 px-2 py-2 text-xs">
+            {todosApiUrl}
+          </code>
+        </div>
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-foreground/60">Example JSON body</p>
+          <pre className="overflow-x-auto rounded bg-foreground/5 px-2 py-2 text-xs">
+{`{
+  "name": "Your spoken todo",
+  "source": "${SIRI_SOURCE}"
+}`}
+          </pre>
+        </div>
+      </section>
     </main>
   );
 }
