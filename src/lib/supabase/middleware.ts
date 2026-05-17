@@ -7,13 +7,55 @@ import {
 } from "@/lib/mcp-oauth/pending";
 import { getSupabaseMiddlewareConfig } from "@/lib/supabase/env";
 
+const PUBLIC_PATHS = new Set([
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+]);
+
+const REDIRECT_IF_AUTHENTICATED = new Set([
+  "/login",
+  "/signup",
+  "/forgot-password",
+]);
+
 function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api")) return true;
   if (pathname.startsWith("/auth")) return true;
   if (pathname.startsWith("/oauth")) return true;
-  if (pathname === "/login") return true;
+  if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/.well-known")) return true;
   return false;
+}
+
+function redirectAuthenticatedFromEntry(
+  request: NextRequest,
+): NextResponse | null {
+  if (!REDIRECT_IF_AUTHENTICATED.has(request.nextUrl.pathname)) {
+    return null;
+  }
+
+  const isOAuthEntry =
+    request.nextUrl.searchParams.get("oauth") === "1" &&
+    (request.nextUrl.pathname === "/login" ||
+      request.nextUrl.pathname === "/signup");
+
+  if (isOAuthEntry) {
+    const pending = request.cookies.get(MCP_OAUTH_PENDING_COOKIE)?.value;
+    const params = pending ? parsePendingParams(pending) : null;
+    if (params) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/oauth/authorize";
+      url.search = authorizeQueryFromPending(params);
+      return NextResponse.redirect(url);
+    }
+  }
+
+  const url = request.nextUrl.clone();
+  url.pathname = "/";
+  url.search = "";
+  return NextResponse.redirect(url);
 }
 
 export async function updateSession(request: NextRequest) {
@@ -66,21 +108,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && request.nextUrl.pathname === "/login") {
-    if (request.nextUrl.searchParams.get("oauth") === "1") {
-      const pending = request.cookies.get(MCP_OAUTH_PENDING_COOKIE)?.value;
-      const params = pending ? parsePendingParams(pending) : null;
-      if (params) {
-        const url = request.nextUrl.clone();
-        url.pathname = "/oauth/authorize";
-        url.search = authorizeQueryFromPending(params);
-        return NextResponse.redirect(url);
-      }
+  if (user) {
+    const entryRedirect = redirectAuthenticatedFromEntry(request);
+    if (entryRedirect) {
+      return entryRedirect;
     }
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
   }
 
   return supabaseResponse;

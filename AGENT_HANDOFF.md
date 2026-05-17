@@ -4,10 +4,11 @@ Compressed context for continuing work or onboarding another agent. **Read this 
 
 ## One-liner
 
-Multi-user todo app: **Next.js 16** (Vercel) + **Supabase** (Postgres, Auth, RLS) + **REST** + **remote MCP** with **app-hosted OAuth** (Claude URL-only connect). Web UI at `/`.
+Multi-user todo app: **Next.js 16** (Vercel) + **Supabase** (Postgres, Auth, RLS) + **REST** + **remote MCP** + **app-hosted OAuth** (Claude) + **personal API keys** (`utl_…` for Siri/curl). Web UI at `/`.
 
 **Production:** `https://unified-todo-list-mcp.vercel.app`  
-**MCP URL:** `https://unified-todo-list-mcp.vercel.app/api/mcp`
+**REST:** `https://unified-todo-list-mcp.vercel.app/api/todos`  
+**MCP:** `https://unified-todo-list-mcp.vercel.app/api/mcp`
 
 ---
 
@@ -16,130 +17,148 @@ Multi-user todo app: **Next.js 16** (Vercel) + **Supabase** (Postgres, Auth, RLS
 ```mermaid
 flowchart TB
   subgraph clients [Clients]
-    Web[Web_UI_session_cookie]
-    Claude[Claude_MCP_OAuth]
+    Web[Web_session_cookie]
+    Claude[Claude_MCP_OAuth_or_JWT]
+    Siri[Siri_Shortcuts_utl_key]
     Curl[curl_REST_Bearer]
   end
-  subgraph vercel [Next.js_on_Vercel]
-    MW[middleware_session_refresh]
-    Login["/login_server_action_signIn"]
-    OAuth["/oauth/*_AS_on_app_origin"]
-    WellKnown["/.well-known/oauth-*"]
+  subgraph vercel [Next.js]
+    MW[middleware]
     REST["/api/todos"]
-    MCP["/api/mcp_withMcpAuth"]
-    Verify[auth.ts_JWKS_verify]
+    MCP["/api/mcp"]
+    AuthLib["auth.ts resolveAuthUser"]
+    Keys["/settings/api-keys"]
   end
   subgraph supa [Supabase]
-    Auth[Auth_JWT_issuer]
-    PG[(todos_RLS)]
-    OAuthTables[(mcp_oauth_clients_codes)]
+    Todos[(todos_RLS)]
+    OAuthT[(mcp_oauth_*)]
+    KeyT[(user_api_keys)]
   end
-  Web --> MW --> Login
-  Claude --> WellKnown --> OAuth
-  OAuth --> Login
-  OAuth --> OAuthTables
-  Login --> Auth
-  MCP --> Verify --> Auth
-  REST --> Verify
-  Verify --> PG
-  Web --> PG
+  Web --> MW --> Todos
+  Claude --> MCP --> AuthLib
+  Siri --> REST --> AuthLib
+  Curl --> REST --> AuthLib
+  AuthLib --> Todos
+  AuthLib --> KeyT
+  Keys --> KeyT
 ```
 
-| Layer | Auth | DB access |
-|-------|------|-----------|
-| Web UI | Supabase SSR session cookie | User-scoped client → RLS (`todos-service-web.ts`) |
-| REST | `Authorization: Bearer` Supabase JWT or `utl_…` API key | Service role + `userId` from JWT `sub` or key row |
-| MCP | Same (OAuth JWT or `utl_…`) | Same as REST |
-| MCP OAuth AS | Issues Supabase `access_token` + `refresh_token` at `/oauth/token` | Service role for `mcp_oauth_*` tables only |
+| Layer | Auth | DB |
+|-------|------|-----|
+| Web UI | SSR session cookie | Session client + RLS (`todos-service-web.ts`) |
+| REST / MCP | `Authorization: Bearer` **Supabase JWT** OR **`utl_…` API key** | Service role + `userId` from JWT `sub` or `user_api_keys.user_id` |
+| OAuth AS | Human login via Supabase; issues JWT at `/oauth/token` | Service role → `mcp_oauth_*` only |
+| API key admin | Web session only (`/settings/api-keys`) | Service role → `user_api_keys` |
 
-**IdP for credentials:** Supabase Auth. **OAuth authorization server:** this app (not Supabase `/auth/v1` as AS).
+**IdP:** Supabase Auth. **OAuth AS:** this app (not Supabase `/auth/v1` as AS).
 
 ---
 
 ## Repo layout (essential)
 
 ```
-supabase/migrations/     # Run in order in Supabase SQL editor
-src/
-  middleware.ts          # updateSession; public: /api, /oauth, /.well-known, /login, /auth
-  lib/
-    auth.ts              # JWKS verify; requireAuth; verifyMcpBearerToken
-    todos-service.ts     # CRUD; service role + userId filter
-    todos-service-web.ts # Web: session client + RLS
-    db.ts                # getSupabaseAdmin()
-    mcp-oauth/           # OAuth AS implementation (see below)
-    supabase/            # env, server/client, middleware, validate-keys
-  app/
-    page.tsx, actions.ts, todo-client.tsx
-    login/               # signInAction (server); OAuth resume via pending cookie
-    oauth/               # register, authorize, token, revoke
-    .well-known/         # oauth-protected-resource, oauth-authorization-server
-    api/todos/, api/[transport]/route.ts  # MCP at /api/mcp
+supabase/migrations/          # Run in order in Supabase SQL editor
+src/lib/
+  auth.ts                     # resolveAuthUser: JWT | utl_ key
+  api-keys.ts                 # generate/verify/list/create/revoke utl_ keys
+  todos-service.ts            # CRUD; service role + userId
+  todos-service-web.ts        # Web: session + RLS
+  todo-source.ts              # MCP_SOURCE, WEB_SOURCE, SIRI_SOURCE, DEFAULT_REST_SOURCE
+  app-origin.ts               # getSiteOrigin() for UI links
+  mcp-oauth/                  # OAuth AS
+src/app/
+  page.tsx, actions.ts, todo-client.tsx
+  login/actions.ts            # signInAction (server) — required for OAuth
+  signup/, forgot-password/, reset-password/  # public auth pages
+  settings/api-keys/          # API key CRUD UI + Siri instructions
+  oauth/, .well-known/
+  api/todos/, api/[transport]/route.ts   # MCP at /api/mcp
+docs/siri-shortcuts.md        # Apple Shortcuts guide
 ```
 
 ---
 
-## Database migrations (all required)
+## Migrations (run all in order)
 
 | File | Purpose |
 |------|---------|
-| `20250515120000_create_todos.sql` | `todos` table |
-| `20250516120000_multi_user_auth.sql` | `user_id` UUID, RLS (`auth.uid() = user_id`) |
-| `20250517120000_mcp_oauth.sql` | `mcp_oauth_clients`, `mcp_oauth_codes` (service role only; RLS enabled, no policies) |
-| `20250518120000_todo_source.sql` | `todos.source` free-form text at create only |
-| `20250518120001_todo_source_open.sql` | Drop enum check if old `20250518120000` was applied |
-| `20250519120000_user_api_keys.sql` | `user_api_keys` — personal `utl_…` Bearer (plaintext v1) |
+| `20250515120000_create_todos.sql` | `todos` |
+| `20250516120000_multi_user_auth.sql` | `user_id` UUID + RLS |
+| `20250517120000_mcp_oauth.sql` | `mcp_oauth_clients`, `mcp_oauth_codes` |
+| `20250518120000_todo_source.sql` | `todos.source` text NOT NULL (nonempty check) |
+| `20250518120001_todo_source_open.sql` | Only if old source migration had enum check |
+| `20250519120000_user_api_keys.sql` | `user_api_keys` (`secret` plaintext v1) |
 
-Backfill legacy rows: `UPDATE public.todos SET user_id = '<uuid>'::uuid WHERE user_id IS NULL;`
-
----
-
-## MCP OAuth flow (implemented)
-
-Matches Marianatek Cousteau pattern: AS on **app origin**, Supabase only for human sign-in.
-
-1. Client reads `GET /.well-known/oauth-protected-resource` → `authorization_servers: [app origin]`, `resource: …/api/mcp`
-2. Client reads `GET /.well-known/oauth-authorization-server` → `/oauth/register`, `/oauth/authorize`, `/oauth/token`
-3. `POST /oauth/register` (DCR) → `client_id`, stores `redirect_uris`
-4. `GET /oauth/authorize?response_type=code&client_id&redirect_uri&code_challenge&code_challenge_method=S256&state`
-5. If no session → set httpOnly `mcp_oauth_pending` cookie → redirect `/login?oauth=1`
-6. **Sign-in must be server-side** (`src/app/login/actions.ts` `signInAction`) so session cookies exist before `/oauth/authorize` runs
-7. Authorized → insert one-time code in `mcp_oauth_codes` (encrypted tokens) → redirect `redirect_uri?code&state`
-8. `POST /oauth/token` → `authorization_code` + PKCE → returns Supabase JWT + refresh; `refresh_token` grant calls Supabase refresh
-
-**Tokens at MCP layer:** still Supabase JWTs; `verifyMcpBearerToken` unchanged (JWKS).
-
-**Optional env:** `MCP_OAUTH_CODE_SECRET` (encrypt codes at rest; defaults to service role key), `MCP_OAUTH_ISSUER` (override issuer URL).
-
-**Edge note:** `src/lib/mcp-oauth/pending.ts` is middleware-safe (no Node `crypto`). `crypto.ts` only imported from route handlers / server code, not middleware.
+Legacy backfill: `UPDATE public.todos SET user_id = '<uuid>'::uuid WHERE user_id IS NULL;`  
+Legacy source backfill (in migration): existing rows → `Claude via MCP`.
 
 ---
 
-## Claude Desktop setup (primary)
+## Auth details
 
-1. Settings → Connectors → add remote MCP URL only:
-   ```
-   https://unified-todo-list-mcp.vercel.app/api/mcp
-   ```
-2. Click **Connect** → browser opens app `/login` → sign in → should redirect back to Claude.
-3. Requires migration `20250517120000_mcp_oauth.sql` applied in Supabase.
+### Supabase JWT (short-lived)
+- `requireAuth` / `verifyMcpBearerToken` → `verifySupabaseAccessToken` (JWKS, issuer, `role: authenticated`).
+- Password grant for curl: README.
 
-**Do not** use client-side `signInWithPassword` for OAuth login (causes session race → stuck on `/login`). Current code uses `signInAction` server action + `redirect()` to `/oauth/authorize`.
+### Personal API keys `utl_…` (long-lived)
+- Table `user_api_keys`: `user_id`, `name`, `secret` (plaintext v1), `revoked_at`, `last_used_at`.
+- **Per-user:** each key row maps to one `auth.users.id`; no shared global key.
+- **Never** accept `userId` in JSON body for auth.
+- Create/list/revoke: `/settings/api-keys` (session cookie). List shows **full secret** every time (v1; defer hash+show-once).
+- Siri/curl: `Authorization: Bearer utl_…` on REST and MCP.
+
+### Todo `source` (create only)
+| Entry | `source` value |
+|-------|----------------|
+| MCP `add_todo` | `Claude via MCP` (`MCP_SOURCE`) |
+| Web `addTodoAction` | `Web UI` (`WEB_SOURCE`) |
+| REST `POST` default | `Website via API` (`DEFAULT_REST_SOURCE`) |
+| REST optional body | Any string 1–200 chars (e.g. `Siri via Shortcuts`) |
+| Update tools | Do not change `source` |
+
+Constants: `src/lib/todo-source.ts`.
 
 ---
 
-## Fallback: manual Bearer + mcp-remote
+## MCP OAuth (Claude Connect)
 
-If OAuth fails in a client, paste Supabase JWT:
+1. `/.well-known/oauth-protected-resource` → app origin AS  
+2. DCR → `/oauth/authorize` (PKCE) → server `signInAction` if no session → code → `/oauth/token` → Supabase JWT  
+3. **Do not** use client-side `signInWithPassword` for OAuth (session race → stuck `/login`).
 
-```bash
-curl -sS "$SUPABASE_URL/auth/v1/token?grant_type=password" \
-  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"...","password":"..."}' | jq -r .access_token
+Env: `MCP_OAUTH_CODE_SECRET`, `MCP_OAUTH_ISSUER` (optional).
+
+---
+
+## Siri / Apple Shortcuts
+
+1. Migration `20250519120000_user_api_keys.sql` applied.  
+2. Web → **API keys** → create key → copy `utl_…`.  
+3. Shortcut: **POST** `{origin}/api/todos`, headers `Authorization: Bearer utl_…`, `Content-Type: application/json`, body `{"name":"…","source":"Siri via Shortcuts"}`.  
+4. Page bottom has live **API URL** via `getSiteOrigin()`.
+
+Full steps: [docs/siri-shortcuts.md](docs/siri-shortcuts.md).
+
+---
+
+## REST API
+
+```http
+Authorization: Bearer <supabase_jwt | utl_...>
 ```
 
-Claude `claude_desktop_config.json`: `mcp-remote` + `Authorization:${TODO_AUTH_HEADER}` where value is `Bearer <token>`. See README.
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/todos` | List |
+| POST | `/api/todos` | Create; optional `source` |
+| PATCH | `/api/todos/:id` | Update / `{ "restore": true }` |
+| DELETE | `/api/todos/:id` | Archive |
+
+---
+
+## MCP tools
+
+`list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo` — scoped to authenticated user (JWT or `utl_`).
 
 ---
 
@@ -148,21 +167,12 @@ Claude `claude_desktop_config.json`: `mcp-remote` + `Authorization:${TODO_AUTH_H
 | Variable | Role |
 |----------|------|
 | `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` | Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser, middleware, OAuth token refresh |
-| `SUPABASE_SERVICE_ROLE_KEY` | REST/MCP DB, OAuth tables (**never** `NEXT_PUBLIC_*`) |
-| `SUPABASE_ANON_KEY` | Optional middleware fallback |
-| `MCP_OAUTH_CODE_SECRET` | Optional encryption key for auth codes |
-| `MCP_OAUTH_ISSUER` | Optional fixed issuer (else `getPublicOrigin(req)`) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser, middleware, OAuth refresh |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server DB (**never** `NEXT_PUBLIC_*`) |
+| `MCP_OAUTH_CODE_SECRET` | Optional OAuth code encryption |
+| `MCP_OAUTH_ISSUER` | Optional fixed public origin |
 
-**Removed:** `API_KEY`.
-
-**Common failures:** anon/publishable key in `SUPABASE_SERVICE_ROLE_KEY`; Stripe key in Supabase slots → "Invalid API Key" on login. Missing `NEXT_PUBLIC_*` at Vercel **build** → `MIDDLEWARE_INVOCATION_FAILED`.
-
----
-
-## MCP tools
-
-`list_todos`, `search_todos`, `add_todo`, `update_todo`, `archive_todo`, `delete_todo`, `restore_todo` — all scoped to JWT `sub` / session user.
+**Common failures:** wrong key in `SUPABASE_SERVICE_ROLE_KEY`; missing `NEXT_PUBLIC_*` at Vercel build → `MIDDLEWARE_INVOCATION_FAILED`.
 
 ---
 
@@ -170,65 +180,50 @@ Claude `claude_desktop_config.json`: `mcp-remote` + `Authorization:${TODO_AUTH_H
 
 | Topic | Choice |
 |-------|--------|
-| Audience | Multi-user; users created manually in Supabase Dashboard |
-| REST + MCP credential | Same Supabase JWT Bearer |
-| Web status UI | Checkbox: open ↔ completed only; `in_progress` via API/MCP |
-| Archive | Soft delete (`archived_at`); restore supported |
-| Todo source | Set on create only; free-form string (REST optional, default `Website via API`; MCP/web use fixed defaults) |
-| API keys | Per-user `utl_…` at `/settings/api-keys`; Bearer on REST/MCP; plaintext in DB v1 (list shows full secret) |
-| Siri | Apple Shortcuts → `POST /api/todos` + `utl_…` + `source: Siri via Shortcuts` — see `docs/siri-shortcuts.md` |
+| Users | Public signup at `/signup`; password reset at `/forgot-password` |
+| REST/MCP auth | JWT and/or per-user `utl_…` |
+| Web checkbox | open ↔ completed only |
+| Archive | Soft delete + restore |
+| Todo source | Create-only, free-form string |
+| API keys v1 | Plaintext `secret` in DB; full secret in Settings list |
+| Siri | Shortcuts + `utl_…` + `Siri via Shortcuts` source |
 
 ---
 
-## Issues fixed (history)
+## Troubleshooting
 
-1. Vercel middleware crash — missing public env at build; safe env reads + try/catch.
-2. Wrong API keys in `.env` — validate-keys.ts; login "Invalid API Key".
-3. Web UI empty — must use session client (RLS), not service role alone.
-4. Git secret scan — keys in history; rotate Supabase keys.
-5. OAuth metadata pointed at Supabase AS — fixed to app origin.
-6. Claude OAuth login loop — client sign-in before server saw session; fixed with server `signInAction`.
-
----
-
-## Troubleshooting Claude "Connect"
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| Stays on `/login` after sign-in | Session cookie race (old client login) | Ensure deployed `signInAction` server action is live |
-| Red message about `mcp_oauth` migration | Tables missing | Run `20250517120000_mcp_oauth.sql` |
-| `invalid_client` / redirect_uri | DCR / URI mismatch | Claude re-registers on connect; check `mcp_oauth_clients` |
-| MCP 401 after connect | JWT verify / wrong issuer | Check `SUPABASE_URL`; token must be Supabase JWT |
+| Symptom | Fix |
+|---------|-----|
+| Stuck on `/login` after OAuth | Deploy server `signInAction` |
+| `mcp_oauth` / `user_api_keys` errors | Run migrations |
+| MCP/REST 401 with `utl_` | Key revoked? Wrong secret? Migration applied? |
+| API keys page empty error | Run `20250519120000_user_api_keys.sql` |
 
 ---
 
 ## Commands
 
 ```bash
-npm install
-npm run dev      # http://localhost:3000
-npm run build
-npm run lint
+npm install && npm run dev    # http://localhost:3000
+npm run build && npm run lint
 ```
+
+---
+
+## Deferred
+
+- Hash-only API keys + show-once (replace plaintext `secret`)
+- OAuth scopes; full `/oauth/revoke`; social login
+- Show `source` in web todo list UI
 
 ---
 
 ## Docs
 
-- User setup: [README.md](README.md)
-- This file: agent onboarding / session continuity
-- Stale plan (historical): `.cursor/plans/oauth_vs_api_key_8859926f.plan.md` — JWT migration done; use this handoff for OAuth work
+- [README.md](README.md) — user setup  
+- [docs/siri-shortcuts.md](docs/siri-shortcuts.md) — Shortcuts  
+- This file — agent continuity  
 
 ---
 
-## Not implemented / deferred
-
-- Hash-only API keys + show-once in Settings (v1 stores plaintext `secret`)
-- OAuth scopes per tool
-- Full `/oauth/revoke` (stub returns 200)
-- Public signup / invite emails
-- Social login
-
----
-
-*Last updated: MCP OAuth bridge + server-side OAuth login fix.*
+*Last updated: public signup, forgot/reset password, auth helpers (`auth-redirect`, `auth-password`).*
