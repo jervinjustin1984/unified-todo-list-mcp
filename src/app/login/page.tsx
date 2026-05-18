@@ -2,7 +2,12 @@ import Link from "next/link";
 import { LoginForm } from "./login-form";
 
 type Props = {
-  searchParams: Promise<{ error?: string; oauth?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    error_code?: string;
+    error_description?: string;
+    oauth?: string;
+  }>;
 };
 
 export default async function LoginPage({ searchParams }: Props) {
@@ -23,9 +28,10 @@ export default async function LoginPage({ searchParams }: Props) {
           Sign-in failed. Try again.
         </p>
       ) : null}
-      {params.error === "reset" ? (
+      {params.error === "reset" || params.error_code === "otp_expired" ? (
         <p className="mt-3 text-sm text-red-600 dark:text-red-400">
-          Password reset link is invalid or expired. Request a new one below.
+          {params.error_description?.replace(/\+/g, " ") ??
+            "Password reset link is invalid or expired. Request a new one below."}
         </p>
       ) : null}
       {params.error === "oauth_server" ? (

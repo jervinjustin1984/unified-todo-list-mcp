@@ -16,7 +16,17 @@ Auth for REST and MCP: **`Authorization: Bearer`** with either a **Supabase JWT*
    - [`supabase/migrations/20250519120000_user_api_keys.sql`](supabase/migrations/20250519120000_user_api_keys.sql)
 3. **Auth (Supabase Dashboard → Authentication)**:
    - **Providers → Email**: enable sign ups; turn **Confirm email** off if you want immediate access after `/signup`.
-   - **URL configuration**: set **Site URL** and add redirect URLs for `/auth/callback` (e.g. `http://localhost:3000/auth/callback` and your production origin).
+   - **URL configuration**: set **Site URL** and add redirect URLs for `/auth/confirm` and `/auth/callback` (e.g. `http://localhost:3000/auth/confirm`, production equivalent).
+   - **Reset password email template** (Authentication → Email Templates → Reset password): use a link to `/auth/confirm` with `token_hash` (required for server-side auth):
+
+     ```html
+     <h2>Reset password</h2>
+     <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password">Reset password</a></p>
+     ```
+
+     Request a **new** reset email after changing the template.
+
+   - **Emails not arriving?** Check the server terminal for `[forgot-password]` errors. Supabase’s built-in mailer has a **low hourly rate limit** (`email rate limit exceeded`); wait ~1 hour or configure [custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) under Authentication → SMTP. View send attempts in Supabase **Authentication → Logs**.
    - Users can register at `/signup` and reset passwords at `/forgot-password`. Admins can still create users in the Dashboard.
 4. **Backfill `user_id`** if you had todos under the old text `user_id` (e.g. `jervinjustin`):
 
