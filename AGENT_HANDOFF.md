@@ -182,7 +182,7 @@ Authorization: Bearer <supabase_jwt | utl_...>
 |-------|--------|
 | Users | Public signup at `/signup`; password reset at `/forgot-password` |
 | REST/MCP auth | JWT and/or per-user `utl_…` |
-| Web checkbox | open ↔ completed only |
+| Web status UI | Checkbox = done/undone; ▶ = in progress (`~` prefix); strikethrough = completed |
 | Archive | Soft delete + restore |
 | Todo source | Create-only, free-form string |
 | API keys v1 | Plaintext `secret` in DB; full secret in Settings list |
@@ -226,4 +226,4 @@ npm run build && npm run lint
 
 ---
 
-*Last updated: public signup, forgot/reset password, auth helpers (`auth-redirect`, `auth-password`).*
+*Last updated: web status UI (checkbox + in-progress control, `~` / strikethrough cues).*

@@ -7,7 +7,8 @@ import {
   archiveTodoForSession,
   createTodoForSession,
   restoreTodoForSession,
-  toggleTodoForSession,
+  toggleTodoCompletedForSession,
+  toggleTodoInProgressForSession,
 } from "@/lib/todos-service-web";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -31,9 +32,23 @@ export async function addTodoAction(
   }
 }
 
-export async function toggleTodoAction(id: string) {
+export async function toggleTodoCompletedAction(id: string) {
   try {
-    const todo = await toggleTodoForSession(id);
+    const todo = await toggleTodoCompletedForSession(id);
+    if (!todo) {
+      return { ok: false as const, error: "Todo not found or archived" };
+    }
+    revalidatePath("/");
+    return { ok: true as const };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to update";
+    return { ok: false as const, error: message };
+  }
+}
+
+export async function toggleTodoInProgressAction(id: string) {
+  try {
+    const todo = await toggleTodoInProgressForSession(id);
     if (!todo) {
       return { ok: false as const, error: "Todo not found or archived" };
     }

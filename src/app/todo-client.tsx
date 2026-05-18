@@ -9,7 +9,8 @@ import {
   archiveTodoAction,
   restoreTodoAction,
   signOutAction,
-  toggleTodoAction,
+  toggleTodoCompletedAction,
+  toggleTodoInProgressAction,
   type ActionResult,
 } from "@/app/actions";
 import type { Todo } from "@/lib/types";
@@ -37,6 +38,97 @@ function AddTodoFields() {
   );
 }
 
+function TodoRowTitle({ todo }: { todo: Todo }) {
+  const isDone = todo.status === "completed";
+  const isInProgress = todo.status === "in_progress";
+
+  return (
+    <span
+      className={
+        isDone
+          ? "text-foreground/50 line-through"
+          : isInProgress
+            ? "text-amber-950 dark:text-amber-100/90"
+            : undefined
+      }
+      {...(isInProgress
+        ? { "aria-label": `${todo.name}, in progress` }
+        : undefined)}
+    >
+      {isInProgress ? (
+        <span className="text-foreground/45" aria-hidden>
+          ~{" "}
+        </span>
+      ) : null}
+      {todo.name}
+      {todo.category ? (
+        <span className="ml-2 text-xs text-foreground/50">({todo.category})</span>
+      ) : null}
+    </span>
+  );
+}
+
+type ActiveTodoRowProps = {
+  todo: Todo;
+  pending: boolean;
+  onToggleCompleted: () => void;
+  onToggleInProgress: () => void;
+  onArchive: () => void;
+};
+
+function ActiveTodoRow({
+  todo,
+  pending,
+  onToggleCompleted,
+  onToggleInProgress,
+  onArchive,
+}: ActiveTodoRowProps) {
+  const isDone = todo.status === "completed";
+  const isInProgress = todo.status === "in_progress";
+
+  return (
+    <li className="flex items-start gap-2 rounded-md border border-transparent px-1 py-1.5 hover:border-foreground/10">
+      <input
+        type="checkbox"
+        className="mt-1 size-4 shrink-0 accent-foreground"
+        checked={isDone}
+        disabled={pending}
+        aria-label={
+          isDone ? `Mark "${todo.name}" not done` : `Mark "${todo.name}" done`
+        }
+        onChange={onToggleCompleted}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2">
+          <TodoRowTitle todo={todo} />
+          {!isDone ? (
+            <button
+              type="button"
+              disabled={pending}
+              title={isInProgress ? "Mark not started" : "Mark in progress"}
+              aria-label={
+                isInProgress ? "Mark not started" : "Mark in progress"
+              }
+              className="mt-0.5 shrink-0 rounded px-1 text-sm leading-none text-foreground/35 hover:bg-foreground/10 hover:text-foreground/70 disabled:opacity-50"
+              onClick={onToggleInProgress}
+            >
+              {isInProgress ? "■" : "▶"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="mt-0.5 shrink-0 text-xs text-foreground/50 underline hover:text-foreground"
+        disabled={pending}
+        onClick={onArchive}
+      >
+        Archive
+      </button>
+    </li>
+  );
+}
+
 type Props = {
   activeTodos: Todo[];
   archivedTodos: Todo[];
@@ -55,7 +147,8 @@ export function TodoClient({ activeTodos, archivedTodos }: Props) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Todos</h1>
           <p className="mt-1 text-sm text-foreground/70">
-            Active items (newest first). Checkbox toggles open ↔ completed.
+            Checkbox marks done; ▶ marks in progress (~). Strikethrough =
+            finished.
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -101,55 +194,26 @@ export function TodoClient({ activeTodos, archivedTodos }: Props) {
         ) : (
           <ul className="flex flex-col gap-1">
             {activeTodos.map((todo) => (
-              <li
+              <ActiveTodoRow
                 key={todo.id}
-                className="flex items-start gap-3 rounded-md border border-transparent px-1 py-1.5 hover:border-foreground/10"
-              >
-                <label className="flex flex-1 cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-1 size-4 shrink-0 accent-foreground"
-                    checked={todo.status === "completed"}
-                    disabled={pending}
-                    onChange={() => {
-                      startTransition(async () => {
-                        await toggleTodoAction(todo.id);
-                      });
-                    }}
-                  />
-                  <span
-                    className={
-                      todo.status === "completed"
-                        ? "text-foreground/50 line-through"
-                        : ""
-                    }
-                  >
-                    {todo.name}
-                    {todo.category ? (
-                      <span className="ml-2 text-xs text-foreground/50">
-                        ({todo.category})
-                      </span>
-                    ) : null}
-                    {todo.status === "in_progress" ? (
-                      <span className="ml-2 rounded bg-foreground/10 px-1.5 py-0.5 text-xs">
-                        In progress
-                      </span>
-                    ) : null}
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  className="shrink-0 text-xs text-foreground/50 underline hover:text-foreground"
-                  disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      await archiveTodoAction(todo.id);
-                    });
-                  }}
-                >
-                  Archive
-                </button>
-              </li>
+                todo={todo}
+                pending={pending}
+                onToggleCompleted={() => {
+                  startTransition(async () => {
+                    await toggleTodoCompletedAction(todo.id);
+                  });
+                }}
+                onToggleInProgress={() => {
+                  startTransition(async () => {
+                    await toggleTodoInProgressAction(todo.id);
+                  });
+                }}
+                onArchive={() => {
+                  startTransition(async () => {
+                    await archiveTodoAction(todo.id);
+                  });
+                }}
+              />
             ))}
           </ul>
         )}

@@ -11,6 +11,7 @@ import {
   listTodos,
   restoreTodo,
   toggleTodoCompletedUi,
+  toggleTodoInProgressUi,
   updateTodo,
 } from "@/lib/todos-service";
 
@@ -58,12 +59,20 @@ export async function archiveTodoForSession(id: string) {
   return archiveTodo(id, userId, supabase);
 }
 
-export async function toggleTodoForSession(id: string) {
+export async function toggleTodoCompletedForSession(id: string) {
   const [supabase, userId] = await Promise.all([
     sessionDb(),
     requireSessionUserId(),
   ]);
   return toggleTodoCompletedUi(id, userId, supabase);
+}
+
+export async function toggleTodoInProgressForSession(id: string) {
+  const [supabase, userId] = await Promise.all([
+    sessionDb(),
+    requireSessionUserId(),
+  ]);
+  return toggleTodoInProgressUi(id, userId, supabase);
 }
 
 export async function restoreTodoForSession(id: string) {
