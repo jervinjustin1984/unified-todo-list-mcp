@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getSiteOrigin } from "@/lib/app-origin";
+import { mapResetPasswordEmailError } from "@/lib/auth-reset-email-error";
 
 export type ForgotPasswordState =
   | { error?: string; success?: boolean }
@@ -19,7 +20,7 @@ export async function requestPasswordResetAction(
 
   const supabase = await createClient();
   const origin = await getSiteOrigin();
-  const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/reset-password")}`;
+  const redirectTo = `${origin}/auth/confirm?next=${encodeURIComponent("/reset-password")}`;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo,
@@ -27,6 +28,7 @@ export async function requestPasswordResetAction(
 
   if (error) {
     console.error("[forgot-password] resetPasswordForEmail:", error.message);
+    return { error: mapResetPasswordEmailError(error.message) };
   }
 
   return { success: true };
