@@ -220,6 +220,32 @@ export async function toggleTodoCompletedUi(
   return updateTodo(id, { status: next }, uid, client);
 }
 
+/** Progress control: open ↔ in_progress only (no-op if completed). */
+export async function toggleTodoInProgressUi(
+  id: string,
+  userId: string,
+  client?: SupabaseClient,
+): Promise<Todo | null> {
+  const uid = assertUserId(userId);
+  const supabase = db(client);
+  const { data: existing, error: fetchErr } = await supabase
+    .from("todos")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", uid)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (!existing) return null;
+
+  const row = existing as TodoRow;
+  if (row.status === "completed") return rowToTodo(row);
+
+  const next: TodoStatus =
+    row.status === "in_progress" ? "open" : "in_progress";
+  return updateTodo(id, { status: next }, uid, client);
+}
+
 export async function restoreTodo(
   id: string,
   userId: string,
